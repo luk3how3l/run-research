@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "prompt": "Read the race bib number of the central foreground runner. Return only its digits, or UNKNOWN if unreadable.",
+  "records": [
+    {
+      "id": "dev-001",
+      "path": "media/ryan_rockie_bib.jpg",
+      "sha256": "59e3e492a3d018e4721e6fd845141223a287f4469207b27ca92a744b851de137",
+      "bib": "3187",
+      "split": "development",
+      "review_status": "user_supplied",
+      "target_identity": "central foreground runner",
+      "target_bbox": null,
+      "provenance": "repository development photo"
+    },
+    {
+      "id": "dev-002",
+      "path": "media/hannah_bib_test.jpg",
+      "sha256": "16d391e3a244236333ea44ca1f91991f56e421c0513bf1df10a629480e9ca066",
+      "bib": "2629",
+      "split": "development",
+      "review_status": "user_supplied",
+      "target_identity": "central foreground runner",
+      "target_bbox": null,
+      "provenance": "repository development photo"
+    },
+    {
+      "id": "dev-003",
+      "path": "media/quinton_bib_image.jpg",
+      "sha256": "97f3d0544a5846ef8ca6ff47d5a0819961de67fd9d9257cf75afdd88509a6009",
+      "bib": "2300",
+      "split": "development",
+      "review_status": "user_supplied",
+      "target_identity": "central foreground runner",
+      "target_bbox": null,
+      "provenance": "repository development photo"
+    }
+  ]
+}

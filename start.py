@@ -1,7 +1,9 @@
 import argparse
 import os
 import csv
-from vlm_vision import run_vlm_benchmark
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 
 
 def main():
@@ -47,6 +49,9 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Deferred so import and --help never pull in Torch/Transformers.
+    from vlm_vision import run_vlm_benchmark
 
     print("==================================================")
     print("           VLM RUNNER BENCHMARK RUNNER            ")

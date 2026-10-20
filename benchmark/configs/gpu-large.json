@@ -1,0 +1,3 @@
+{"model_id": "mistral-experimental/pixtral-12b", "revision": "c2756cbbb9422eba9f6c5c439a214b0392dfc998",
+ "adapter": "pixtral", "device": "cuda", "dtype": "bfloat16", "quantization": "nf4",
+ "gpu_uuid": "GPU-REPLACE-WITH-AUTHORIZED-UUID", "warmup": 0, "repetitions": 1}

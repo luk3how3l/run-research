@@ -1,0 +1,1 @@
+{"adapter": "smolvlm", "device": "cpu", "dtype": "float32", "threads": 2, "warmup": 0, "repetitions": 1}
