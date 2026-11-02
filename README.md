@@ -1,5 +1,7 @@
 # Run Research
 
+**Annotation tool added 2 November:** run `python3 -m tools.annotate` from this directory, then open http://127.0.0.1:8765. See [laptop and RENN setup](SETUP_LAPTOP_AND_RENN.md) for labeling, CSV export, SSH tunneling, and GPU preparation. This addition does not implement the shared model runner.
+
 Can a vision-language model read race bib numbers more accurately than our person-detector → bib-detector → OCR pipeline, and what does each approach cost in time and memory?
 
 We want to compare three systems on the **same photos and the same runner in each photo**:

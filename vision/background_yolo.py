@@ -1,6 +1,9 @@
 import cv2
 import numpy as np
 import os
+import shutil
+import warnings
+from pathlib import Path
 import re
 from ultralytics import YOLO
 import pytesseract
@@ -10,18 +13,25 @@ import hashlib
 from collections import deque
 import matplotlib.pyplot as plt
 # Import your database
-from core.database import AthleteDatabase
+try:
+    from core.database import AthleteDatabase
+    from core.image_cache import ImageCache, get_image_hash
+except ModuleNotFoundError as exc:
+    if exc.name not in {"core", "core.database", "core.image_cache"}:
+        raise
+    AthleteDatabase = ImageCache = None
 
-from core.image_cache import ImageCache, get_image_hash
+    def get_image_hash(frame):
+        return hashlib.sha256(frame.tobytes()).hexdigest()
 
 # This stays alive as long as the backend is running
 try:
-    ATHLETE_DB = AthleteDatabase()
+    ATHLETE_DB = AthleteDatabase() if AthleteDatabase else None
 except Exception as e:
     print("Database connection error:", e)
 
 try:
-    RESULT_CACHE = ImageCache(db=2)
+    RESULT_CACHE = ImageCache(db=2) if ImageCache else None
 except Exception as e:
     print(f"Cache connection error: {e}")
     RESULT_CACHE = None
@@ -35,28 +45,35 @@ os.environ["OMP_THREAD_LIMIT"] = "1"
 
 try:
     #pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    pytesseract.pytesseract.tesseract_cmd = (
+        shutil.which("tesseract") or r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    )
 
 except Exception as e:
     print(f"Tesseract config warning: {e}")
 
 # Expand the home directory symbol '~' and set the base models folder
-MODELS_DIR = os.path.expanduser("~/Senior_Project/final_project/didatades_project/models")
-MODEL_DIR_WINDOWS = "C:/Users/Luke/Documents/Semester8/SeniorProject/project/final_project/spotlight_project"
-#MODEL_DIR_WINDOWS = r"C:\Users\Luke\Documents\Semester8\SeniorProject\project\final_project\spotlight_project"
-PERSON_MODEL_PATH = os.path.join(MODEL_DIR_WINDOWS, 'models', 'yolov8s.pt')
-BIB_MODEL_PATH = os.path.join(MODEL_DIR_WINDOWS, 'models', 'number632resol.pt') #best.pt
+MODELS_DIR = Path(__file__).resolve().parents[1] / "models"
+PERSON_MODEL_PATH = str(MODELS_DIR / 'yolov8s.pt')
+BIB_MODEL_PATH = str(MODELS_DIR / 'number632resol.pt')
+
+
+def _load_local_model(path):
+    if not Path(path).is_file():
+        warnings.warn(f"Missing local YOLO model: {path}", RuntimeWarning)
+        return None
+    return YOLO(path)
 
 print("Loading global YOLO models...")
 
 try:
-    GLOBAL_PERSON_MODEL = YOLO(PERSON_MODEL_PATH)
+    GLOBAL_PERSON_MODEL = _load_local_model(PERSON_MODEL_PATH)
 except Exception as e:
     print(f"YOLO Person Model Load Error: {e}. Defaulting to None.")
     GLOBAL_PERSON_MODEL = None
 
 try:
-    GLOBAL_BIB_MODEL = YOLO(BIB_MODEL_PATH)
+    GLOBAL_BIB_MODEL = _load_local_model(BIB_MODEL_PATH)
 except Exception as e:
     print(f"YOLO Bib Model Load Error: {e}. Defaulting to None.")
     GLOBAL_BIB_MODEL = None
