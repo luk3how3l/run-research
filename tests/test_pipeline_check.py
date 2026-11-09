@@ -66,6 +66,32 @@ class GPU(unittest.TestCase):
                 pc.gpu_environment(mask, selected, self.gpus)
 
 
+class GPUUUID(unittest.TestCase):
+    def test_complete_uuids_still_respect_allocation_masks(self):
+        first = 'GPU-c17b88c2-24ec-4249-f527-ae8b09e8942a'
+        second = 'GPU-81c70668-488d-f9db-9967-76b1d39830ca'
+        gpus = [{'index': 0, 'uuid': first}, {'index': 1, 'uuid': second}]
+        for mask in [first, '0']:
+            with self.subTest(mask=mask):
+                self.assertEqual(pc.gpu_environment(mask, first, gpus), first)
+                with self.assertRaisesRegex(ValueError, 'outside inherited'):
+                    pc.gpu_environment(mask, second, gpus)
+
+    def test_normalization(self):
+        uuid = 'c17b88c2-24ec-4249-f527-ae8b09e8942a'
+        for value in [uuid, 'GPU-' + uuid, uuid.upper(), 'gpu-' + uuid.upper()]:
+            with self.subTest(value=value):
+                self.assertEqual(pc.normalize_gpu_uuid(value), uuid)
+
+    def test_invalid_identities(self):
+        uuid = 'c17b88c2-24ec-4249-f527-ae8b09e8942a'
+        for value in [None, '', 'unknown', 'UNKNOWN', 'GPU-placeholder', 'NVIDIA L4',
+                      uuid[:-1], uuid[:8], 'GPU-GPU-' + uuid, ' ' + uuid,
+                      uuid + '\n', uuid.replace('c', 'z'), 123]:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                pc.normalize_gpu_uuid(value)
+
+
 class ProcessAndTarget(unittest.TestCase):
     def test_timeout_is_recorded(self):
         with tempfile.TemporaryDirectory() as d, patch.object(pc.subprocess, 'run',
@@ -113,18 +139,26 @@ class Orchestration(unittest.TestCase):
             self.assertEqual(report['systems'], {})
 
     def test_gpu_check_only_uses_selected_uuid_and_matches_probe_identity(self):
-        for actual, expected_exit in [('GPU-a', 0), ('GPU-wrong', 1)]:
+        selected = 'GPU-c17b88c2-24ec-4249-f527-ae8b09e8942a'
+        different = 'GPU-81c70668-488d-f9db-9967-76b1d39830ca'
+        cases = [(selected[4:], 0), (selected, 0), (selected.upper(), 0),
+                 (different, 1), (None, 1), ('unknown', 1), ('', 1),
+                 ('GPU-placeholder', 1), (selected[:-1], 1), ('NVIDIA L4', 1)]
+        for actual, expected_exit in cases:
             with self.subTest(actual=actual), tempfile.TemporaryDirectory() as d:
                 out = Path(d) / 'run'
                 def fake_launch(command, env, log, timeout):
-                    self.assertEqual(env['CUDA_VISIBLE_DEVICES'], 'GPU-a')
+                    self.assertEqual(env['CUDA_VISIBLE_DEVICES'], selected)
                     self.assertIn("'cuda'", command[-1])
-                    pc.write_json(out / 'probe.json', {'device': 'cuda', 'gpu_uuid': actual})
+                    probe = {'device': 'cuda'}
+                    if actual is not None:
+                        probe['gpu_uuid'] = actual
+                    pc.write_json(out / 'probe.json', probe)
                     return {'returncode': 0}
-                gpus = [dict(index=0, uuid='GPU-a', name='L4', total_mib=23034,
+                gpus = [dict(index=0, uuid=selected, name='L4', total_mib=23034,
                              used_mib=0, utilization_pct=0)]
                 with patch.object(sys, 'argv', ['verify', '--systems', 'cascade', '--check-only',
-                        '--gpu-uuid', 'GPU-a', '--output', str(out)]), \
+                        '--gpu-uuid', selected, '--output', str(out)]), \
                      patch.dict(pc.os.environ, {}, clear=True), \
                      patch.object(pc.importlib.metadata, 'version', return_value='test'), \
                      patch.object(pc, 'cascade_inputs', return_value=[]), \
@@ -134,6 +168,10 @@ class Orchestration(unittest.TestCase):
                         pc.main('renn')
                 self.assertEqual(exit.exception.code, expected_exit)
                 report = json.loads((out / 'report.json').read_text())
+                self.assertEqual(report['status'], 'preflight_passed' if expected_exit == 0 else 'failed')
+                if expected_exit:
+                    self.assertIn(repr(actual if actual is not None else 'unknown'), report['errors'][0])
+                    self.assertIn(selected, report['errors'][0])
                 self.assertFalse(report['pipeline_verified'])
                 self.assertEqual(report['systems'], {})
 

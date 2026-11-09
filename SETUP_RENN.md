@@ -87,6 +87,8 @@ Annotation and the standard-library tests need none of these pip packages. The r
 
 ## 5. Make the assigned GPU visible and verify CUDA
 
+Physical GPU UUIDs identify devices independently of their numeric indices in `nvidia-smi`. `CUDA_VISIBLE_DEVICES` restricts which devices CUDA can access and determines their logical ordering. PyTorch's `cuda:0` is the first device visible under that mask, not necessarily physical GPU index 0. On university infrastructure, use only your allocated GPU and never bypass a scheduler-provided mask.
+
 If a scheduler/container already assigns `CUDA_VISIBLE_DEVICES`, keep that assignment. If you control a dedicated GPU VM and no mask is assigned, list GPU UUIDs:
 
 ```bash
@@ -235,6 +237,24 @@ This legacy profiler uses YOLO's default device selection and handles **all dete
 
 ## 10. Verify the GPU pipelines end to end
 
+For GPU diagnosis, inspect the physical devices, inherited allocation mask, and runtime verification together:
+
+```bash
+cd ~/run-research
+source .venv-renn-gpu/bin/activate
+
+nvidia-smi --query-gpu=index,uuid,name,memory.total,memory.used,utilization.gpu \
+  --format=csv,noheader
+
+printf 'CUDA_VISIBLE_DEVICES=%s\n' "${CUDA_VISIBLE_DEVICES-<unset>}"
+
+python -m tools.verify_renn \
+  --gpu-uuid GPU-YOUR-AUTHORIZED-UUID \
+  --check-only
+```
+
+Replace the placeholder with your authorized UUID. `nvidia-smi` may report `GPU-c17b88c2-24ec-4249-f527-ae8b09e8942a` while PyTorch reports `c17b88c2-24ec-4249-f527-ae8b09e8942a`. The previous raw-string comparison falsely rejected this case even when CUDA could access the selected GPU. Verification now validates both complete UUIDs, removes only an optional leading `GPU-`, and compares their content without regard to letter case. A prefix-only difference is not a GPU mismatch. A genuine UUID mismatch, unavailable or malformed identity, or allocation-mask violation still blocks execution; GPU names and partial UUIDs cannot establish identity.
+
 After downloading the selected weights and passing the CUDA tensor test, run the RENN verification program. Set your actual allocated UUID, or omit `--gpu-uuid` when inheriting a single-GPU scheduler mask:
 
 ```bash
@@ -256,6 +276,23 @@ python -m tools.verify_renn \
 All requested systems must have their files/dependencies ready before any models are loaded. This program never downloads weights, never falls back to CPU, and checks GPU allocation masks. Single numeric scheduler masks are preserved and the actual Torch GPU UUID is cross-checked; multiple numeric indices require a single-GPU allocation or UUID-based mask. It refuses devices above 10% utilization or 1 GiB used; Pixtral additionally requires 18 GiB free by screening policy. Availability may change after the check; stop if your allocation changes. It is not a scheduler or a guarantee that the model fits.
 
 Each system runs in a separate subprocess, sequentially. Results go into a new timestamped `results/verify-renn-*` folder. Read `REPORT.md` first, then `report.json` and each system's `worker.log` / `result.json`. Check-only success is named `preflight_passed`, not proof of inference. A full `passed` means the selected pipelines executed; exact bib accuracy is reported separately and may be low. Failures/timeouts return a nonzero exit code and retain available logs/results.
+
+Use the exact directory printed by the verifier to inspect the runtime identity and overall result:
+
+```bash
+# Replace the timestamp with the directory printed by your run.
+cat results/verify-renn-TIMESTAMP/probe.json
+cat results/verify-renn-TIMESTAMP/report.json
+cat results/verify-renn-TIMESTAMP/REPORT.md
+```
+
+`probe.json` contains the PyTorch GPU UUID and effective CUDA mask when the runtime probe succeeds. `report.json` contains the selected physical GPU, runtime probe data, status, and errors. `REPORT.md` provides the readable status and errors. If preflight stops before the probe, `probe.json` may be absent; inspect `report.json`, `REPORT.md`, and `probe.log` if present. Successful check-only output is:
+
+```text
+Status: preflight_passed
+```
+
+This verifies preflight checks and the tiny runtime probe only. It does not load model weights or establish successful model inference; run the full verification command separately for that.
 
 Run the corresponding laptop test with `python -m tools.verify_pc`; it forces CPU and defaults to cascade plus SmolVLM. See [the README](README.md#verify-the-installed-pipelines) for all options. GPU success cannot be established by running this on a CPU laptop; execute the RENN command on the actual allocated machine.
 

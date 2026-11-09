@@ -3,6 +3,7 @@ import argparse
 import importlib.metadata
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import socket
@@ -84,6 +85,15 @@ def cascade_inputs():
     if not shutil.which('tesseract'):
         errors.append('Tesseract executable missing: install native tesseract-ocr')
     return errors
+
+
+def normalize_gpu_uuid(value):
+    """Validate a complete GPU UUID and return its lowercase, prefixless identity."""
+    if not isinstance(value, str) or not re.fullmatch(
+            r'(?:GPU-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
+            value, flags=re.IGNORECASE):
+        raise ValueError(f'Invalid GPU UUID: {value!r}')
+    return value.lower().removeprefix('gpu-')
 
 
 def gpu_environment(inherited, selected, gpus):
@@ -352,8 +362,15 @@ def main(profile):
         report['runtime'] = json.loads(probe_path.read_text())
         if profile == 'renn':
             actual = report['runtime'].get('gpu_uuid', 'unknown')
-            if actual == 'unknown' or actual.lower() != report['selected_gpu']['uuid'].lower():
-                raise RuntimeError('Torch GPU identity could not be matched to the selected nvidia-smi UUID; use an administrator-provided UUID allocation mask')
+            selected_uuid = report['selected_gpu']['uuid']
+            try:
+                matches = normalize_gpu_uuid(actual) == normalize_gpu_uuid(selected_uuid)
+            except ValueError:
+                matches = False
+            if not matches:
+                raise RuntimeError(f'Torch GPU identity {actual!r} could not be matched to the selected '
+                                   f'nvidia-smi UUID {selected_uuid!r}; identity must be available and valid; '
+                                   'use an administrator-provided UUID allocation mask')
         if args.check_only:
             report['status'] = 'preflight_passed'
         else:

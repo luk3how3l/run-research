@@ -1,10 +1,49 @@
-.venv/
+# Python environments, bytecode, and test/tool caches
+.venv*/
+venv/
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local credentials and environment settings
 .env
 .env.*
+!.env.example
+!.env.template
+
+# Downloaded weights and generated experiment/annotation output
 models/
-.venv-renn/
 annotations/
-.venv-renn-gpu/
-.venv-cpu/
+results/
+runs/
+.cache/
+*.pt
+*.pth
+*.safetensors
+*.onnx
+benchmark_results.csv
+background_yolo_profile.json
+ocr_target_bib_crop.jpg
+ocr_debug_threshold.jpg
+
+# Generated JSON/logs; keep source configs and dataset manifests
+*.json
+!benchmark/configs/*.json
+!benchmark/manifests/*.json
+*.log
+*.log.*
+
+# Temporary files and editor/OS clutter
+*.tmp
+*.bak
+*.backup-*
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
