@@ -1,0 +1,61 @@
+{
+  "system": "cascade",
+  "device": "cpu",
+  "trials": [
+    {
+      "image": "media/quinton_bib_image.jpg",
+      "label": "2300",
+      "sha256": "97f3d0544a5846ef8ca6ff47d5a0819961de67fd9d9257cf75afdd88509a6009",
+      "target_bbox": [
+        748,
+        1101,
+        1708,
+        3300
+      ],
+      "raw_ocr": [
+        "2300\n"
+      ],
+      "outcome": "prediction",
+      "score": {
+        "raw": "2300",
+        "normalized": "2300",
+        "strict_exact": true,
+        "normalized_exact": true,
+        "digits_only": true,
+        "abstained": false,
+        "empty": false,
+        "no_digits": false,
+        "multiple_digit_groups": false,
+        "cer": 0.0
+      },
+      "status": "ok",
+      "pipeline_sec": 2.2152801021002233
+    }
+  ],
+  "planned": 1,
+  "status": "passed",
+  "prompt": "Read the race bib number of the central foreground runner. Return only its digits, or UNKNOWN if unreadable.",
+  "target_policy": "largest person crossing horizontal image midpoint; else nearest horizontal person center",
+  "weights_sha256": {
+    "yolov8s.pt": "1f47a78bf100391c2a140b7ac73a1caae18c32779be7d310658112f7ac9aa78a",
+    "number632resol.pt": "ca0afd9a835cf664b61a368a8f6e40193bbc015df2cf6117cc4a1713cd22cba9"
+  },
+  "load_sec": 3.503359053051099,
+  "summary": {
+    "planned": 1,
+    "attempted": 1,
+    "unattempted": 0,
+    "succeeded": 1,
+    "failed": 0,
+    "strict_exact": 1,
+    "normalized_exact": 1,
+    "digits_only": 1,
+    "abstained": 0,
+    "empty": 0,
+    "no_digits": 0,
+    "multiple_digit_groups": 0,
+    "mean_cer_successful": 0.0,
+    "cer_denominator": "successful trials only; failures reported separately"
+  },
+  "pipeline_passed": true
+}

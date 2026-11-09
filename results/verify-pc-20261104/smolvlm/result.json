@@ -1,0 +1,60 @@
+{
+  "system": "smolvlm",
+  "device": "cpu",
+  "trials": [
+    {
+      "image": "media/quinton_bib_image.jpg",
+      "label": "2300",
+      "sha256": "97f3d0544a5846ef8ca6ff47d5a0819961de67fd9d9257cf75afdd88509a6009",
+      "metrics": {
+        "raw_output": "2300.",
+        "extracted_bib": "2300",
+        "latency_sec": 59.1362,
+        "fps": 0.02,
+        "input_tokens": 896,
+        "visual_tokens": 13,
+        "output_tokens": 7,
+        "total_tokens": 903,
+        "peak_vram_mb": 0.0
+      },
+      "score": {
+        "raw": "2300.",
+        "normalized": "2300",
+        "strict_exact": false,
+        "normalized_exact": true,
+        "digits_only": false,
+        "abstained": false,
+        "empty": false,
+        "no_digits": false,
+        "multiple_digit_groups": false,
+        "cer": 0.0
+      },
+      "status": "ok",
+      "pipeline_sec": 68.58383675292134
+    }
+  ],
+  "planned": 1,
+  "status": "passed",
+  "prompt": "Read the race bib number of the central foreground runner. Return only its digits, or UNKNOWN if unreadable.",
+  "target_policy": "largest person crossing horizontal image midpoint; else nearest horizontal person center",
+  "model_dir": "/home/lukea/.cache/huggingface/hub/models--HuggingFaceTB--SmolVLM-500M-Instruct/snapshots/a7da5b986cb59b408707209984f360a5f4ad7e47",
+  "quantization": null,
+  "load_sec": 35.371019573067315,
+  "summary": {
+    "planned": 1,
+    "attempted": 1,
+    "unattempted": 0,
+    "succeeded": 1,
+    "failed": 0,
+    "strict_exact": 0,
+    "normalized_exact": 1,
+    "digits_only": 0,
+    "abstained": 0,
+    "empty": 0,
+    "no_digits": 0,
+    "multiple_digit_groups": 0,
+    "mean_cer_successful": 0.0,
+    "cer_denominator": "successful trials only; failures reported separately"
+  },
+  "pipeline_passed": true
+}

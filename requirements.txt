@@ -1,32 +1,5 @@
-smolagents
-openai
-ddgs
-bs4
-requests
-pandas
-argparse
-chromadb
-pdfplumber
-langchain_text_splitters
-sentence_transformers
-selenium
-webdriver-manager
-opencv-python
-ultralytics
-matplotlib
-neptune
-pillow
-pytesseract
-datasets
-redis
-mss
-fastapi
-uvicorn
-pyautogui
-
-transformers>=4.57.0
-accelerate
-qwen-vl-utils
-torch
-torchvision
-qwen-vl-utils
+# VLM dependencies; first install one platform-specific Torch file.
+# RENN: requirements/torch-renn-cu126.txt
+# CPU: requirements/torch-cpu.txt
+# Optional cascade / NF4: requirements/cascade.txt, requirements/gpu-nf4.txt
+-r requirements/common.txt

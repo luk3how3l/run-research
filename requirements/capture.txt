@@ -1,0 +1,3 @@
+# Optional desktop screen capture helper; not needed on headless RENN.
+# Install cascade.txt for its NumPy/OpenCV dependencies first.
+mss==10.1.0

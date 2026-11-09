@@ -16,9 +16,10 @@ def main():
     p.add_argument('--system', choices=['cascade', 'vlm'], required=True)
     p.add_argument('--output', type=Path, required=True)
     args = p.parse_args()
+    args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     os.environ.update(HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1', HF_HUB_DISABLE_TELEMETRY='1',
-                      CUDA_VISIBLE_DEVICES='', YOLO_CONFIG_DIR=str(args.output.resolve()))
+                      CUDA_VISIBLE_DEVICES='', YOLO_CONFIG_DIR=str(args.output), MPLCONFIGDIR=str(args.output / 'matplotlib'))
     import torch
     torch.set_num_threads(2)
     from benchmark.manifest import load_manifest, validate, sha256_file
@@ -52,8 +53,10 @@ def main():
             processor = AutoProcessor.from_pretrained(cached, local_files_only=True, trust_remote_code=False)
             model = Idefics3ForConditionalGeneration.from_pretrained(cached, local_files_only=True, trust_remote_code=False, use_safetensors=True, dtype=torch.float32).to('cpu').eval()
         report['load_sec'] = time.perf_counter() - t
+        (args.output / 'results.json').write_text(json.dumps(report, indent=2))
         for rec in manifest['records']:
             trial = {'image': rec['path'], 'label': rec['bib'], 'sha256': rec['sha256']}
+            print('Starting ' + rec['path'], flush=True)
             start = time.perf_counter()
             try:
                 if args.system == 'cascade':

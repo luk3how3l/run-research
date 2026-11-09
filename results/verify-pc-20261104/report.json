@@ -1,0 +1,186 @@
+{
+  "profile": "pc",
+  "host": "Destopper",
+  "python": "/home/lukea/run-research/.venv/bin/python",
+  "mode": "inference",
+  "systems": {
+    "cascade": {
+      "returncode": 0,
+      "result": {
+        "system": "cascade",
+        "device": "cpu",
+        "trials": [
+          {
+            "image": "media/quinton_bib_image.jpg",
+            "label": "2300",
+            "sha256": "97f3d0544a5846ef8ca6ff47d5a0819961de67fd9d9257cf75afdd88509a6009",
+            "target_bbox": [
+              748,
+              1101,
+              1708,
+              3300
+            ],
+            "raw_ocr": [
+              "2300\n"
+            ],
+            "outcome": "prediction",
+            "score": {
+              "raw": "2300",
+              "normalized": "2300",
+              "strict_exact": true,
+              "normalized_exact": true,
+              "digits_only": true,
+              "abstained": false,
+              "empty": false,
+              "no_digits": false,
+              "multiple_digit_groups": false,
+              "cer": 0.0
+            },
+            "status": "ok",
+            "pipeline_sec": 2.2152801021002233
+          }
+        ],
+        "planned": 1,
+        "status": "passed",
+        "prompt": "Read the race bib number of the central foreground runner. Return only its digits, or UNKNOWN if unreadable.",
+        "target_policy": "largest person crossing horizontal image midpoint; else nearest horizontal person center",
+        "weights_sha256": {
+          "yolov8s.pt": "1f47a78bf100391c2a140b7ac73a1caae18c32779be7d310658112f7ac9aa78a",
+          "number632resol.pt": "ca0afd9a835cf664b61a368a8f6e40193bbc015df2cf6117cc4a1713cd22cba9"
+        },
+        "load_sec": 3.503359053051099,
+        "summary": {
+          "planned": 1,
+          "attempted": 1,
+          "unattempted": 0,
+          "succeeded": 1,
+          "failed": 0,
+          "strict_exact": 1,
+          "normalized_exact": 1,
+          "digits_only": 1,
+          "abstained": 0,
+          "empty": 0,
+          "no_digits": 0,
+          "multiple_digit_groups": 0,
+          "mean_cer_successful": 0.0,
+          "cer_denominator": "successful trials only; failures reported separately"
+        },
+        "pipeline_passed": true
+      },
+      "passed": true
+    },
+    "smolvlm": {
+      "returncode": 0,
+      "result": {
+        "system": "smolvlm",
+        "device": "cpu",
+        "trials": [
+          {
+            "image": "media/quinton_bib_image.jpg",
+            "label": "2300",
+            "sha256": "97f3d0544a5846ef8ca6ff47d5a0819961de67fd9d9257cf75afdd88509a6009",
+            "metrics": {
+              "raw_output": "2300.",
+              "extracted_bib": "2300",
+              "latency_sec": 59.1362,
+              "fps": 0.02,
+              "input_tokens": 896,
+              "visual_tokens": 13,
+              "output_tokens": 7,
+              "total_tokens": 903,
+              "peak_vram_mb": 0.0
+            },
+            "score": {
+              "raw": "2300.",
+              "normalized": "2300",
+              "strict_exact": false,
+              "normalized_exact": true,
+              "digits_only": false,
+              "abstained": false,
+              "empty": false,
+              "no_digits": false,
+              "multiple_digit_groups": false,
+              "cer": 0.0
+            },
+            "status": "ok",
+            "pipeline_sec": 68.58383675292134
+          }
+        ],
+        "planned": 1,
+        "status": "passed",
+        "prompt": "Read the race bib number of the central foreground runner. Return only its digits, or UNKNOWN if unreadable.",
+        "target_policy": "largest person crossing horizontal image midpoint; else nearest horizontal person center",
+        "model_dir": "/home/lukea/.cache/huggingface/hub/models--HuggingFaceTB--SmolVLM-500M-Instruct/snapshots/a7da5b986cb59b408707209984f360a5f4ad7e47",
+        "quantization": null,
+        "load_sec": 35.371019573067315,
+        "summary": {
+          "planned": 1,
+          "attempted": 1,
+          "unattempted": 0,
+          "succeeded": 1,
+          "failed": 0,
+          "strict_exact": 0,
+          "normalized_exact": 1,
+          "digits_only": 0,
+          "abstained": 0,
+          "empty": 0,
+          "no_digits": 0,
+          "multiple_digit_groups": 0,
+          "mean_cer_successful": 0.0,
+          "cer_denominator": "successful trials only; failures reported separately"
+        },
+        "pipeline_passed": true
+      },
+      "passed": true
+    }
+  },
+  "errors": [],
+  "pipeline_verified": true,
+  "status": "passed",
+  "started_utc": "20261105T051932342750Z",
+  "threads": 2,
+  "warmup": 0,
+  "target_policy": "largest person crossing horizontal image midpoint; else nearest horizontal person center",
+  "target_policy_status": "development heuristic; review targets",
+  "note": "A successful smoke run verifies this setup and sample only, not final accuracy or live throughput.",
+  "records": [
+    {
+      "id": "dev-003",
+      "path": "media/quinton_bib_image.jpg",
+      "sha256": "97f3d0544a5846ef8ca6ff47d5a0819961de67fd9d9257cf75afdd88509a6009",
+      "bib": "2300",
+      "split": "development",
+      "review_status": "user_supplied",
+      "target_identity": "central foreground runner",
+      "target_bbox": null,
+      "provenance": "repository development photo"
+    }
+  ],
+  "packages": {
+    "torch": "2.14.0",
+    "torchvision": "0.29.0",
+    "Pillow": "12.3.0",
+    "numpy": "2.5.3",
+    "requests": "2.34.2",
+    "transformers": "5.17.0",
+    "accelerate": "1.15.0",
+    "safetensors": "0.8.0",
+    "ultralytics": "8.4.158",
+    "opencv-python": "5.0.0.93",
+    "pytesseract": "0.3.13",
+    "matplotlib": "3.11.2"
+  },
+  "models": {
+    "smolvlm": {
+      "path": "/home/lukea/.cache/huggingface/hub/models--HuggingFaceTB--SmolVLM-500M-Instruct/snapshots/a7da5b986cb59b408707209984f360a5f4ad7e47",
+      "shards": 1,
+      "weight_file_bytes": 1015025832,
+      "integrity_check": "header bounds and file sizes, not cryptographic verification"
+    }
+  },
+  "runtime": {
+    "torch": "2.14.0+cu130",
+    "torchvision": "0.29.0+cu130",
+    "device": "cpu"
+  }
+}

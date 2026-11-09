@@ -1,0 +1,19 @@
+{
+  "settings_version": "0.0.8",
+  "datasets_dir": "/home/lukea/run-research/datasets",
+  "weights_dir": "/home/lukea/run-research/weights",
+  "runs_dir": "/home/lukea/run-research/runs",
+  "uuid": "b049aa3d57a2c537a712408d3bbccf51f68be3d319ecb2c45f57aa0ae61e2df0",
+  "sync": true,
+  "api_key": "",
+  "openai_api_key": "",
+  "clearml": true,
+  "comet": true,
+  "dvc": true,
+  "mlflow": true,
+  "raytune": true,
+  "tensorboard": false,
+  "wandb": false,
+  "vscode_msg": true,
+  "openvino_msg": true
+}

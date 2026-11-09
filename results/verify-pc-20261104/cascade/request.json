@@ -1,0 +1,20 @@
+{
+  "system": "cascade",
+  "device": "cpu",
+  "records": [
+    {
+      "id": "dev-003",
+      "path": "media/quinton_bib_image.jpg",
+      "sha256": "97f3d0544a5846ef8ca6ff47d5a0819961de67fd9d9257cf75afdd88509a6009",
+      "bib": "2300",
+      "split": "development",
+      "review_status": "user_supplied",
+      "target_identity": "central foreground runner",
+      "target_bbox": null,
+      "provenance": "repository development photo"
+    }
+  ],
+  "output": "/home/lukea/run-research/results/verify-pc-20261104/cascade",
+  "model_dir": null,
+  "threads": 2
+}

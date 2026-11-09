@@ -1,97 +1,189 @@
-# Run Research
+# Race-bib recognition research
 
-**Annotation tool added 2 November:** run `python3 -m tools.annotate` from this directory, then open http://127.0.0.1:8765. See [laptop and RENN setup](SETUP_LAPTOP_AND_RENN.md) for labeling, CSV export, SSH tunneling, and GPU preparation. This addition does not implement the shared model runner.
+Compare one runner's bib number using **SmolVLM**, **Pixtral**, and the original **YOLO person → YOLO bib → Tesseract OCR** cascade. Phase 2 adds detector → VLM hybrids. Primary outcome: exact bib accuracy; also measure speed and memory for eventual live background processing. Target deliverables are a paper and demonstration by the end of November 2026.
 
-Can a vision-language model read race bib numbers more accurately than our person-detector → bib-detector → OCR pipeline, and what does each approach cost in time and memory?
+**Setting up RENN? Start with [SETUP_RENN.md](SETUP_RENN.md).** It covers SSH, system dependencies, separate pip requirement lists, your CUDA error, manual model downloads, and GPU execution. [Laptop setup and annotation](SETUP_LAPTOP_AND_RENN.md) is separate.
 
-We want to compare three systems on the **same photos and the same runner in each photo**:
+## Current state
 
-1. **SmolVLM-500M-Instruct**: the small model for a local CPU baseline.
-2. **Pixtral-12B**: the larger model for the Renn university GPU machine.
-3. **YOLO + OCR cascade**: the existing detection and Tesseract approach, once its dependencies and target-selection behavior are made testable.
+- Annotation UI, CSV save/resume/edit, and reviewed-manifest export work.
+- A bounded CPU comparison ran on the three known development photos on 2 November. Both systems read 3/3 bibs correctly after digit extraction. Cascade averaged 4.66 s/image; SmolVLM averaged 104.68 s/image. No downloading occurred during inference. [Raw artifacts and protocol](results/smoke-2026-11-02/REPORT.md).
+- The earlier 14 October SmolVLM run scored 1/3 normalized matches, using different software. Preserve it as a separate historical result; see [the original handoff](coding_agent_10_19.md).
+- `start.py` now uses explicit SmolVLM/Pixtral loaders and supports offline local directories, explicit CUDA, and optional NF4. Updated CUDA/NF4 execution still needs a real RENN smoke test.
+- The shared configurable 100-image runner, final comparison reporter, and hybrids are pending. Existing configuration files are groundwork, not a runnable shared evaluator.
+- The fixed 100-photo dataset is still being collected and labeled. The three original photos are development data, not an untouched test set. Additional local photos must be labeled before evaluation.
 
-**Current status, 19 October 2026:** one three-photo SmolVLM CPU experiment has completed. The Pixtral run, portable benchmark implementation, working cascade comparison and 100-image evaluation are still pending. This update adds documentation only; it does not install or implement the planned tools.
+Three examples do not establish general accuracy or a winning architecture. See [goals and sprints](PROJECT_GOALS_AND_SPRINTS.md) for delivery work.
 
-If you are continuing the coding work, start with [coding_agent_10_19.md](coding_agent_10_19.md). It contains the implementation plan, known blockers, test requirements and stopping rules.
+## Programs and modules
 
-## What we have actually measured
+Run commands from the repository root with your environment activated.
 
-The completed experiment ran on **Destopper's Ubuntu 24.04 WSL environment**, using an Intel Core i5-1235U and CPU float32. It was not a new run on the Renn machine. If “laptop” means a different machine, that reproduction still needs to happen.
+| Program/module | Purpose | Output or limitation |
+|---|---|---|
+| `python -m tools.verify_pc` / `python -m tools.verify_renn` | CPU/GPU preflight plus isolated pipeline smoke tests | Pass/fail, logs, predictions, timing; no downloads |
+| `python -m start` | One image through SmolVLM or Pixtral | CSV; optional raw JSON. Loads once per invocation, offline weights only |
+| `python -m tools.annotate` | Browser-based human labeling | CSV and optional validated JSON manifest; no ML dependencies |
+| `python -m tools.smoke_compare` | Known three-photo CPU smoke experiment, cascade or SmolVLM | Unique output directory with predictions and artifacts; fixed CPU settings and cached VLM revision |
+| `python test_background_yolo.py` | Legacy cascade stage profiling; optional VLM profiling | JSON; processes all people, so not a controlled designated-runner accuracy test |
+| `python -m benchmark.resource_check` | Preliminary RAM/GPU/disk/package inspection | JSON; does not load models or download |
+| `benchmark/config.py` and `configs/` | Settings resolution and CPU/GPU presets | Library for the future shared runner; `start.py` does not accept these JSON presets |
+| `benchmark/manifest.py` and `manifests/` | Validate image hashes, labels, splits, and target metadata | Smoke manifest and incomplete 100-slot scaffold |
+| `benchmark/scoring.py` | Strict/normalized exact match and true Levenshtein CER | Library functions; failed trials retained in planned counts |
+| `src/vlm_vision.py` | VLM image loading, explicit architecture loading, inference, legacy metrics | Called by `start.py` and the optional legacy profiler |
+| `vision/background_yolo.py` | Existing YOLO/OCR stages | Local weights required; still loads models at import and writes fixed debug images |
+| `vision/capture.py` | Screen-capture helper for the original application | Requires a desktop and `requirements/capture.txt` after cascade dependencies; not used by still-image experiments |
+| `test_qwen.py` | Historical model experiment | Not a unit test or supported launch command; loads at import with incompatible model/class assumptions |
+| `tests/` | Focused tests | Run only this directory; no inference or downloads |
 
-It used the original full photos, one model load, no warmup, one pass per image, greedy decoding and a 32-token output limit.
+## Verify the installed pipelines
 
-| Photo | Correct bib | Raw answer | Extracted bib | Correct after extraction? | Generation time |
-|---|---|---|---|---|---|
-| Ryan | 3187 | `318.` | 318 | No | 42.8642 s |
-| Hannah | 2629 | `209.` | 209 | No | 39.6320 s |
-| Quinton | 2300 | `2300.` | 2300 | Yes | 40.9939 s |
+After installing the relevant requirements and downloading weights, use the dedicated smoke-test programs. They do not install packages or download models. Each model runs sequentially in an isolated subprocess, with a 900-second timeout. Defaults use the known Quinton photo, full resolution, zero warmup, one pass, and two Torch threads.
 
-**Result: 1/3 normalized exact matches and 0/3 strict raw exact matches.** All three images executed successfully. The model loaded in 5.3446 seconds. Two different memory-observation methods recorded approximately 3.84 GB sampled peak RSS and 3.90 GB process high-water RSS; they are not interchangeable measurements.
+**PC (CPU):**
 
-These are three observed development examples, not proof of general accuracy or evidence that one system wins. We have no Pixtral or cascade results to compare yet.
+```bash
+python -m tools.verify_pc --check-only
+python -m tools.verify_pc
+```
 
-## Milestone 1: Local / laptop baseline
+Defaults check and execute the cascade and SmolVLM. The model directory is detected at `models/smolvlm-500m`, falling back to the pinned default Hub cache. To specify it explicitly or run all three known photos:
 
-**Partly complete.** The historical Destopper CPU result above is preserved. Next, make the benchmark reproducible through a clean entry point and rerun the same three photos with saved configuration, raw answers, timing and memory measurements. Reproduce on a separate laptop only if that is a different intended target.
+```bash
+python -m tools.verify_pc --smolvlm-dir models/smolvlm-500m --all-images
+```
 
-Done means another person can follow the documented setup and get a recorded run, including an honest error report if dependencies, storage or memory are insufficient. It does not mean the model must answer every bib correctly.
+**RENN (allocated GPU):** after [GPU setup](SETUP_RENN.md), replace the UUID below with your allocated GPU's real UUID:
 
-## Milestone 2: Renn GPU comparison
+```bash
+python -m tools.verify_renn --gpu-uuid GPU-YOUR-ACTUAL-ALLOCATED-UUID --check-only
+python -m tools.verify_renn --gpu-uuid GPU-YOUR-ACTUAL-ALLOCATED-UUID
+```
 
-**Pending.** Run Pixtral-12B on the same photos, labels, prompt and scoring protocol as SmolVLM. Also run SmolVLM on the same GPU when practical, so hardware changes are not mistaken for a model-only speed improvement.
+RENN defaults to cascade, SmolVLM, and Pixtral NF4, all on the same single GPU. Local directories are detected at `models/smolvlm-500m` and `models/pixtral-12b`, or use `--smolvlm-dir` / `--pixtral-dir`. If a scheduler already supplies a single-GPU mask, omit `--gpu-uuid`; multiple assigned UUIDs require explicit selection within that mask. A single numeric scheduler mask is preserved and its actual Torch UUID cross-checked; multiple numeric indices require a single-GPU allocation or UUID-based mask. The program refuses CPU fallback, selection outside an inherited mask, busy GPUs, and insufficient Pixtral VRAM under its stated screening policy. These checks are not a GPU reservation or memory-fit guarantee.
 
-Pixtral's original BF16 weights contain **25,365,479,424 bytes, about 25.4 GB**. That is its weight payload, not a measured RAM or VRAM requirement. The proposed single-GPU setup uses **4-bit NF4 quantization** to reduce runtime GPU memory. It still downloads the original weights, and quantization may affect accuracy.
+Before downloading Pixtral, verify only the systems already installed:
 
-The supplied Renn snapshot showed two NVIDIA L4 GPUs, each with 23,034 MiB. GPU 0 was idle; GPU 1 was busy at 99% utilization. This is a historical snapshot, not a reservation. Recheck availability, confirm university permission and use only the explicitly allocated GPU. Do not assume an empty process list means a GPU is free.
+```bash
+python -m tools.verify_renn --systems cascade smolvlm --gpu-uuid GPU-YOUR-ACTUAL-ALLOCATED-UUID
+```
 
-No Slurm setup is assumed. Do not run inference on a login node or disturb another person's job.
+Both programs accept `--systems`, `--check-only`, `--all-images`, `--threads`, `--timeout`, and `--output NEW_DIRECTORY`. A cascade-only test needs no VLM weights. The known three-photo manifest is used; newly added unlabeled photos are excluded.
 
-## Milestone 3: Portability and resource checks
+**Local verification, 4 November:** the PC program completed cascade and SmolVLM inference on Quinton: both read 2300 (cascade 2.22 s, VLM 68.58 s). See [the verification report](results/verify-pc-20261104/REPORT.md). The 47 focused tests pass; real RENN GPU inference remains pending.
 
-**Planned, not yet implemented in this repository.** Add a separate checker that reports:
+Each invocation creates a timestamped directory under `results/` with `REPORT.md`, `report.json`, `probe.log`, and per-system worker logs and raw results. It checks image hashes, dependency metadata, native Torch/torchvision operations, weight/shard structure, and Tesseract presence when applicable. Safetensors header/file bounds checks do not replace cryptographic verification. For RENN it also exercises a CUDA tensor, BF16 support, and bitsandbytes import when Pixtral is selected. Actual inference tests the full model path.
 
-- Available RAM, including container or job limits where detectable
-- GPU identity, free/used VRAM and utilization
-- Disk space, selected cache contents and unknown personal quota
-- Installed package versions and runtime compatibility
-- Whether the small CPU or larger single-GPU profile is a reasonable candidate, or why it must refuse
+- **`preflight_passed`**: files/dependencies and tiny runtime checks passed; models were not loaded and inference is unverified.
+- **`passed`**: every requested pipeline executed on the requested sample(s). Incorrect, empty, or missing-detection predictions lower accuracy but are separate from execution failure.
+- **`failed`**: missing inputs, runtime/load errors, timeouts, or trial execution failures. Exit status is nonzero; inspect logs.
 
-Keep the checker separate from model execution. Detecting capable hardware must never trigger a download or inference run. A recommendation is not proof that a model fits.
+The cascade applies the same development target heuristic as the bounded comparison, not the legacy all-person accuracy rule. Passing a smoke test verifies only the selected setup and examples, not the final 100-photo experiment or real-time performance.
 
-The evaluator should use configuration files and command-line overrides rather than hardcoding a model. Provide clear CPU and GPU launch scripts, matching platform-specific Torch instructions, common dependencies and an optional CUDA quantization dependency file. Downloads must be explicit, revision-pinned and capped; inference should work offline from a verified cache.
+## Run a VLM on your PC
 
-## Milestone 4: Grow from 3 photos to 100
+Linux/WSL, Python 3.12 CPU setup (annotation alone does not require a virtual environment):
 
-**Pending real photos and reviewed labels.** Create one shared manifest containing image paths, SHA256 hashes, bib labels as strings and the target runner. Check all 100 records before running any model.
+```bash
+python3 -m venv .venv-cpu
+source .venv-cpu/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements/torch-cpu.txt
+python -m pip install -r requirements/common.txt
+```
 
-Do not generate fake labels or pretend empty template rows are data. A scaffold may contain the three known records and 97 clearly unfilled slots. Keep duplicate images out. Decide the target, labels, inclusion rules and parameters before viewing test predictions.
+Download SmolVLM **once**, explicitly:
 
-The existing three photos have already been used for development. If they are included in a 100-photo collection, report their results separately from the 97 new evaluation photos. Do not describe all 100 as an untouched held-out test set.
+```bash
+hf download HuggingFaceTB/SmolVLM-500M-Instruct \
+  --revision a7da5b986cb59b408707209984f360a5f4ad7e47 \
+  --include '*.json' '*.safetensors' '*.model' '*.jinja' \
+  --local-dir models/smolvlm-500m
+```
 
-The final three-way comparison needs:
+Then run offline:
 
-- The same complete image list, labels and target runner for every system
-- Raw and normalized accuracy, plus missing, invalid and failed predictions
-- Per-image end-to-end runtime, with load and warmup reported separately
-- Clearly labeled CPU and GPU peak-memory measurements
-- Saved model revisions, parameters, software versions and hardware details
+```bash
+python -m start \
+  --image media/quinton_bib_image.jpg \
+  --model models/smolvlm-500m --cpu --ground_truth 2300 \
+  --csv results/pc-smolvlm.csv --json results/pc-smolvlm.json
+```
 
-## What is blocking the cascade?
+Repeat for another image with its correct label. Each command starts a new process and reloads the model; it does not redownload weights. Choose unique JSON names because `--json` overwrites that file. CSV appends with header validation; use a new filename for CSVs written by older versions.
 
-The source is in [vision/background_yolo.py](vision/background_yolo.py). It currently imports missing database/cache modules, loads models during import, and contains machine-specific Windows model and Tesseract paths. The custom bib detector weights are not included in this repository.
+`start` supports `--device cpu|cuda`, `--cpu`, `--model`, `--revision`, `--quantization nf4`, `--threads`, `--image`, `--prompt`, `--ground_truth`, `--csv`, and `--json`. Use `python -m start --help`. `--device cuda` refuses CPU fallback. Omitting the device preserves legacy automatic selection; explicit devices are recommended for recorded experiments. Hub IDs require already cached files; manual download directories must be passed as `--model`.
 
-It also processes **all detected people**, while the VLM prompt asks for the **central foreground runner**. We need one explicit target-matching rule before comparing scores. A future clean adapter should take local weight and Tesseract paths, avoid database/cache side effects, and clearly distinguish any changed behavior from the legacy pipeline. Until those inputs and rules exist, report the cascade as blocked rather than inventing a result.
+The VLM families are selected from checkpoint configuration: Idefics3 for this pinned SmolVLM, and Llava with Pixtral vision configuration for Pixtral. Arbitrary model IDs, including Qwen, are not supported by this two-model loader. Remote model code is disabled and weights are safetensors only.
 
-## Continue the work
+## Run Pixtral on RENN's GPU
 
-The detailed coding handoff is [coding_agent_10_19.md](coding_agent_10_19.md). It describes the existing draft bundle, suggested file layout, milestone acceptance tests and the inputs still needed.
+First complete [RENN setup](SETUP_RENN.md), including the CUDA tensor test and manual Pixtral download. On the assigned GPU node with its allocation/mask already established:
 
-The original `start.py` has an import-path issue, and `test_qwen.py` loads a model during import. Do not use broad test discovery as a harmless setup check. The handoff calls for a separate, dependency-light test suite and explicit execution commands.
+```bash
+cd ~/run-research
+source .venv-renn-gpu/bin/activate
+python -m start \
+  --image media/quinton_bib_image.jpg \
+  --model models/pixtral-12b \
+  --device cuda --quantization nf4 --ground_truth 2300 \
+  --csv results/renn-pixtral.csv --json results/renn-pixtral.json
+```
 
-For now, pulling `main` retrieves these instructions and the existing research code. It does **not** mean the proposed resource checker, adapters or new benchmark have been implemented.
+Pixtral uses approximately 25.4 GB of original downloaded weights. NF4 reduces runtime weight precision; it does not shrink the original transfer. GPU fit is not guaranteed. Run SmolVLM on the same allocated GPU with `--model models/smolvlm-500m --device cuda` for a hardware-matched diagnostic comparison. Quantized and unquantized variants must be labeled separately.
 
-### Model references
+## Label photos
 
-- [SmolVLM-500M-Instruct](https://huggingface.co/HuggingFaceTB/SmolVLM-500M-Instruct)
-- [Transformers Pixtral guide, including NF4](https://huggingface.co/docs/transformers/v4.57.1/en/model_doc/pixtral)
-- [Pinned Transformers-compatible Pixtral checkpoint](https://huggingface.co/mistral-experimental/pixtral-12b/tree/c2756cbbb9422eba9f6c5c439a214b0392dfc998)
+```bash
+python -m tools.annotate --images media --csv annotations/bibs.csv
+```
+
+Open http://127.0.0.1:8765. Enter the designated runner's bib digits; keep leading zeros. Set the target description and split, and add a source/permission note for evaluation photos. Save and next persists a record. Previous lets you edit; navigation without saving discards edits. Restart with the same arguments to resume. The CSV is written atomically with a unique backup of the preceding version at each save.
+
+Supported files: JPEG, PNG, WebP, including subdirectories. Skip/unreadable/ambiguous statuses must have blank bibs. Model predictions are not shown during labeling. Multiple-person photos need a reviewed target description; box drawing is not implemented. Images and CSV must stay paired; missing/changed images or duplicate content are refused.
+
+Export after all scanned photos have reviewed digit labels:
+
+```bash
+python -m tools.annotate --images media --csv annotations/bibs.csv \
+  --export annotations/reviewed100.json --expected-count 100
+```
+
+Use the actual scanned count for smaller collections. `media/` may now contain more than the original three photos, so a three-record export only works with a three-photo image directory. Unresolved photos block export rather than silently disappearing. CSV columns are `image_path,bib,sha256,status,target_identity,split,provenance`; import bibs as text in spreadsheet software. Unreadable-example scoring must be agreed before final evaluation. SSH tunneling is covered in the RENN guide.
+
+## Reproduce the bounded CPU comparison
+
+Install `requirements/cascade.txt` as well as common/CPU requirements, install native Tesseract, and supply local `models/yolov8s.pt` and `models/number632resol.pt`. The VLM smoke harness currently expects the pinned revision in the **default Hub cache**, unlike the directory-based `start` examples:
+
+```bash
+hf download HuggingFaceTB/SmolVLM-500M-Instruct \
+  --revision a7da5b986cb59b408707209984f360a5f4ad7e47 \
+  --include '*.json' '*.safetensors' '*.model' '*.jinja'
+python -m tools.smoke_compare --system cascade --output results/cascade-new-run
+python -m tools.smoke_compare --system vlm --output results/vlm-new-run
+```
+
+Run sequentially, with new output directories. This harness reads `benchmark/manifests/smoke3.json`, not the entire photo folder or annotation CSV. It forces CPU, two threads, no warmup, and one pass. The cascade selects the largest person crossing the horizontal midpoint, otherwise the closest horizontal person center. That development heuristic differs from the legacy all-person loop. Outputs include raw OCR, target boxes, prediction scores, timings, weight hashes, package versions, and process high-water RSS. Review target selections before interpreting results.
+
+For stage profiling on one image:
+
+```bash
+python test_background_yolo.py --image media/quinton_bib_image.jpg \
+  --ground-truth 2300 --cpu --warmup 0 --runs 1 \
+  --output results/cascade-profile.json
+```
+
+`--vlm-model models/smolvlm-500m` adds optional VLM profiling through the offline loader; this legacy profiler has no NF4 option. Its accuracy check searches all detected bibs and is not the final target-level metric. Dropping `--cpu` allows YOLO default device selection; the profiler does not enforce a GPU explicitly.
+
+## Metrics, checks, and limits
+
+For `start.py`, JSON/CSV preserve raw VLM answers and extracted digits. `char_accuracy` is legacy SequenceMatcher similarity, **not CER**. `latency_sec` is synchronized generation time; `pipeline_sec` adds image loading, preprocessing, and decoding; `model_load_sec` is separate. `fps` is reciprocal generation latency, not measured live-video throughput. `visual_tokens` is a legacy tensor-shape estimate, not an authoritative visual-token count. Peak VRAM is the Torch allocator's generation-phase peak; the legacy CPU field is zero and is not a CPU memory measurement. Use the smoke report's separately named process RSS field for its CPU results.
+
+```bash
+python -m benchmark.resource_check
+python -m unittest discover -s tests -p 'test_*.py'
+```
+
+Resource recommendations are preliminary. Cache completeness is unknown without a pinned file inventory. `--probe` opts into importing ML packages and tiny operations; avoid its UUID override when an inherited allocation mask must be preserved. Never use broad root test discovery with `test_qwen.py` present.
+
+Final paper evaluation still needs a reviewed dataset, frozen target policy, shared multi-image runner, phase memory measurement, controlled repeated timing, and hybrid adapters. Use the [sprint plan](PROJECT_GOALS_AND_SPRINTS.md) as the current plan; the [October handoff](coding_agent_10_19.md) retains historical details and protocol requirements.

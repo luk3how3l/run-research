@@ -6,3 +6,5 @@ __pycache__/
 models/
 .venv-renn/
 annotations/
+.venv-renn-gpu/
+.venv-cpu/

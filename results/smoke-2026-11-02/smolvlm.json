@@ -1,0 +1,89 @@
+{
+  "system": "vlm",
+  "device": "cpu",
+  "threads": 2,
+  "warmup": 0,
+  "prompt": "Read the race bib number of the central foreground runner. Return only its digits, or UNKNOWN if unreadable.",
+  "target_policy": "largest person box crossing horizontal image midpoint; otherwise nearest horizontal box center",
+  "target_policy_status": "development heuristic, requires visual review",
+  "trials": [
+    {
+      "image": "media/ryan_rockie_bib.jpg",
+      "label": "3187",
+      "sha256": "59e3e492a3d018e4721e6fd845141223a287f4469207b27ca92a744b851de137",
+      "preprocess_sec": 3.874358502100222,
+      "generate_sec": 102.44712321506813,
+      "score": {
+        "raw": " 3187.",
+        "normalized": "3187",
+        "strict_exact": false,
+        "normalized_exact": true,
+        "digits_only": false,
+        "abstained": false,
+        "empty": false,
+        "no_digits": false,
+        "multiple_digit_groups": false,
+        "cer": 0.0
+      },
+      "pipeline_sec": 106.39763118501287,
+      "status": "ok"
+    },
+    {
+      "image": "media/hannah_bib_test.jpg",
+      "label": "2629",
+      "sha256": "16d391e3a244236333ea44ca1f91991f56e421c0513bf1df10a629480e9ca066",
+      "preprocess_sec": 2.2318635949632153,
+      "generate_sec": 121.34820312296506,
+      "score": {
+        "raw": " 2629.",
+        "normalized": "2629",
+        "strict_exact": false,
+        "normalized_exact": true,
+        "digits_only": false,
+        "abstained": false,
+        "empty": false,
+        "no_digits": false,
+        "multiple_digit_groups": false,
+        "cer": 0.0
+      },
+      "pipeline_sec": 123.61270333395805,
+      "status": "ok"
+    },
+    {
+      "image": "media/quinton_bib_image.jpg",
+      "label": "2300",
+      "sha256": "97f3d0544a5846ef8ca6ff47d5a0819961de67fd9d9257cf75afdd88509a6009",
+      "preprocess_sec": 3.5926591079914942,
+      "generate_sec": 80.41340865800157,
+      "score": {
+        "raw": " 2300.",
+        "normalized": "2300",
+        "strict_exact": false,
+        "normalized_exact": true,
+        "digits_only": false,
+        "abstained": false,
+        "empty": false,
+        "no_digits": false,
+        "multiple_digit_groups": false,
+        "cer": 0.0
+      },
+      "pipeline_sec": 84.02728822210338,
+      "status": "ok"
+    }
+  ],
+  "packages": {
+    "torch": "2.14.0",
+    "torchvision": "0.29.0",
+    "transformers": "5.17.0",
+    "ultralytics": "8.4.158",
+    "pillow": "12.3.0",
+    "pytesseract": "0.3.13"
+  },
+  "host": "Destopper",
+  "input_manifest_sha256": "dd50d7d87e08995f6bb82b25e447622d56c24945de9b668e5789dd3787542736",
+  "model": "HuggingFaceTB/SmolVLM-500M-Instruct",
+  "revision": "a7da5b986cb59b408707209984f360a5f4ad7e47",
+  "load_sec": 36.561439133947715,
+  "process_high_water_rss_kib": 3574604,
+  "target_visual_review": "Selected boxes inspected by assistant; intended central runner in all three photos. Human target-policy review still required."
+}

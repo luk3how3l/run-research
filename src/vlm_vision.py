@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 import torch
 import difflib
-from transformers import AutoProcessor, AutoModelForVision2Seq
+from transformers import AutoConfig, AutoProcessor
 
 try:
     import cv2
@@ -69,7 +69,10 @@ def get_image(url_or_path):
     cv_img = load_image(url_or_path)
     if cv_img is None:
         return None
-    
+
+    if isinstance(cv_img, Image.Image):
+        return cv_img.convert("RGB")
+
     # Convert OpenCV BGR to RGB, then to PIL Image
     rgb_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
     return Image.fromarray(rgb_img)
@@ -84,43 +87,45 @@ def get_device(force_cpu: bool = False) -> str:
         return "mps"
     return "cpu"
 
-def get_model(model_id: str, device: str = "cuda"):
-    """
-    Dynamically loads both standard HF Vision2Seq models (SmolVLM, PaliGemma) 
-    and Qwen2-VL / Qwen2.5-VL architectures without shape/class mismatches.
-    """
-    print(f"[*] Initializing model: {model_id} on [{device}]...")
-    torch_dtype = torch.bfloat16 if device == "cuda" else torch.float32
-
-    # Qwen-specific loader branch
-    if "qwen" in model_id.lower():
-        try:
-            from transformers import Qwen2_5_VLForConditionalGeneration
-            model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                model_id,
-                torch_dtype=torch_dtype,
-                device_map=device if device != "cpu" else None
-            )
-        except ImportError:
-            from transformers import AutoModelForCausalLM
-            model = AutoModelForCausalLM.from_pretrained(
-                model_id,
-                torch_dtype=torch_dtype,
-                device_map=device if device != "cpu" else None
-            )
+def get_model(model_id: str, device: str = "cuda", *, revision=None,
+              local_files_only=True, quantization=None):
+    """Explicit architecture loaders for the two research baselines; offline by default."""
+    if device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA requested but unavailable. Check nvidia-smi, GPU passthrough, "
+                           "CUDA_VISIBLE_DEVICES and the Torch build before loading weights.")
+    if quantization not in (None, "nf4") or (quantization and device != "cuda"):
+        raise ValueError("NF4 requires CUDA; choose no quantization for CPU")
+    if device == "cuda" and not torch.cuda.is_bf16_supported():
+        raise RuntimeError("This CUDA profile requires BF16 support; no automatic dtype fallback")
+    options = dict(local_files_only=local_files_only, trust_remote_code=False)
+    if revision:
+        options["revision"] = revision
+    config = AutoConfig.from_pretrained(model_id, **options)
+    if config.model_type == "idefics3":
+        from transformers import Idefics3ForConditionalGeneration
+        loader = Idefics3ForConditionalGeneration
+    elif (config.model_type == "llava" and
+          getattr(config.vision_config, "model_type", None) == "pixtral"):
+        from transformers import LlavaForConditionalGeneration
+        loader = LlavaForConditionalGeneration
     else:
-        # Standard Vision2Seq (SmolVLM, Idefics3, PaliGemma)
-        model = AutoModelForVision2Seq.from_pretrained(
-            model_id,
-            torch_dtype=torch_dtype,
-            device_map=device if device != "cpu" else None
-        )
+        raise ValueError(f"Unsupported architecture {config.model_type!r}; use SmolVLM or Pixtral")
+    dtype = torch.bfloat16 if device == "cuda" else torch.float32
+    model_options = dict(options, config=config, torch_dtype=dtype, use_safetensors=True)
+    if device == "cuda":
+        # Logical device 0 is within the mask chosen before process startup.
+        model_options["device_map"] = {"": 0}
+    if quantization:
+        from transformers import BitsAndBytesConfig
+        model_options["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=dtype)
+    print(f"[*] Loading {model_id} on {device} (offline={local_files_only}, quantization={quantization})")
+    processor = AutoProcessor.from_pretrained(model_id, **options)
+    model = loader.from_pretrained(model_id, **model_options)
+    if device != "cuda":
+        model = model.to(device)
+    return model.eval(), processor
 
-    if device == "cpu":
-        model = model.to("cpu")
-
-    processor = AutoProcessor.from_pretrained(model_id)
-    return model, processor
 
 def extract_bib_digits(raw_text: str) -> str:
     """Extracts only consecutive digits representing the bib number from the response."""
@@ -133,7 +138,7 @@ def extract_bib_digits(raw_text: str) -> str:
 
 def compute_character_accuracy(predicted: str, ground_truth: str):
     """
-    Calculates character-by-character match accuracy (Levenshtein similarity)
+    Calculates legacy SequenceMatcher similarity (not Levenshtein/CER)
     and pinpoints error types (substitution, deletion, insertion).
     """
     pred_str = str(predicted).strip()
@@ -177,13 +182,16 @@ def vision_prompt(model, processor, pil_img: Image.Image, query: str = "What is 
         }
     ]
 
-    prompt = processor.apply_chat_template(messages, add_generation_prompt=True)
+    prompt = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
     inputs = processor(text=prompt, images=[pil_img], return_tensors="pt").to(model.device)
+
+    if "pixel_values" in inputs:
+        inputs["pixel_values"] = inputs["pixel_values"].to(model.dtype)
 
     # Input token profiling
     input_ids = inputs.get("input_ids")
     input_tokens_count = input_ids.shape[1] if input_ids is not None else 0
-    
+
     # Estimate visual token grid count if available
     pixel_values = inputs.get("pixel_values")
     visual_tokens_count = pixel_values.shape[1] if (pixel_values is not None and len(pixel_values.shape) > 3) else 0
@@ -240,16 +248,26 @@ def run_vlm_benchmark(
     model_id: str = "HuggingFaceTB/SmolVLM-500M-Instruct",
     prompt_query: str = "What is the bib number of the runner? Output only the digits.",
     ground_truth_bib: str = "",
-    force_cpu: bool = False
+    force_cpu: bool = False,
+    device=None, revision=None, local_files_only=True, quantization=None
 ):
     """Orchestrates loading, prompt generation, extraction, and accuracy evaluation."""
-    device = get_device(force_cpu=force_cpu)
+    device = device or get_device(force_cpu=force_cpu)
+    image_start = time.perf_counter()
     pil_img = get_image(image_source)
     if pil_img is None:
         return None
 
-    model, processor = get_model(model_id, device=device)
+    image_load_sec = time.perf_counter() - image_start
+    load_start = time.perf_counter()
+    model, processor = get_model(model_id, device=device, revision=revision,
+                                 local_files_only=local_files_only, quantization=quantization)
+    load_sec = time.perf_counter() - load_start
+    pipeline_start = time.perf_counter()
     metrics = vision_prompt(model, processor, pil_img, query=prompt_query)
+
+    metrics["pipeline_sec"] = time.perf_counter() - pipeline_start + image_load_sec
+    metrics["model_load_sec"] = load_sec
 
     # Format the required output display
     img_name = os.path.basename(image_source) if not image_source.startswith("http") else image_source
@@ -257,6 +275,10 @@ def run_vlm_benchmark(
     metrics["display"] = formatted_display
     metrics["image_source"] = image_source
     metrics["model_id"] = model_id
+    metrics["revision"] = revision
+    metrics["device"] = device
+    metrics["quantization"] = quantization
+    metrics["model_architecture"] = type(model).__name__
 
     # Evaluate accuracy if ground truth is supplied
     if ground_truth_bib:

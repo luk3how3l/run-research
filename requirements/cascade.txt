@@ -1,0 +1,5 @@
+# Install common.txt and one Torch profile first. Native Tesseract is separate.
+ultralytics==8.4.158
+opencv-python==4.12.0.88
+pytesseract==0.3.13
+matplotlib==3.10.7

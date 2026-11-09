@@ -1,0 +1,121 @@
+{
+  "system": "cascade",
+  "device": "cpu",
+  "threads": 2,
+  "warmup": 0,
+  "prompt": "Read the race bib number of the central foreground runner. Return only its digits, or UNKNOWN if unreadable.",
+  "target_policy": "largest person box crossing horizontal image midpoint; otherwise nearest horizontal box center",
+  "target_policy_status": "development heuristic, requires visual review",
+  "trials": [
+    {
+      "image": "media/ryan_rockie_bib.jpg",
+      "label": "3187",
+      "sha256": "59e3e492a3d018e4721e6fd845141223a287f4469207b27ca92a744b851de137",
+      "people_detected": 1,
+      "target_bbox": [
+        150,
+        292,
+        1328,
+        2947
+      ],
+      "bib_detected": true,
+      "raw_ocr": [
+        "3187\n"
+      ],
+      "pipeline_sec": 9.857349475030787,
+      "score": {
+        "raw": "3187",
+        "normalized": "3187",
+        "strict_exact": true,
+        "normalized_exact": true,
+        "digits_only": true,
+        "abstained": false,
+        "empty": false,
+        "no_digits": false,
+        "multiple_digit_groups": false,
+        "cer": 0.0
+      },
+      "legacy_joined_digits": "3187",
+      "status": "ok"
+    },
+    {
+      "image": "media/hannah_bib_test.jpg",
+      "label": "2629",
+      "sha256": "16d391e3a244236333ea44ca1f91991f56e421c0513bf1df10a629480e9ca066",
+      "people_detected": 7,
+      "target_bbox": [
+        1090,
+        1201,
+        2273,
+        3769
+      ],
+      "bib_detected": true,
+      "raw_ocr": [
+        "2629\n"
+      ],
+      "pipeline_sec": 2.3828535879729316,
+      "score": {
+        "raw": "2629",
+        "normalized": "2629",
+        "strict_exact": true,
+        "normalized_exact": true,
+        "digits_only": true,
+        "abstained": false,
+        "empty": false,
+        "no_digits": false,
+        "multiple_digit_groups": false,
+        "cer": 0.0
+      },
+      "legacy_joined_digits": "2629",
+      "status": "ok"
+    },
+    {
+      "image": "media/quinton_bib_image.jpg",
+      "label": "2300",
+      "sha256": "97f3d0544a5846ef8ca6ff47d5a0819961de67fd9d9257cf75afdd88509a6009",
+      "people_detected": 5,
+      "target_bbox": [
+        748,
+        1101,
+        1708,
+        3300
+      ],
+      "bib_detected": true,
+      "raw_ocr": [
+        "2300\n"
+      ],
+      "pipeline_sec": 1.7499538069823757,
+      "score": {
+        "raw": "2300",
+        "normalized": "2300",
+        "strict_exact": true,
+        "normalized_exact": true,
+        "digits_only": true,
+        "abstained": false,
+        "empty": false,
+        "no_digits": false,
+        "multiple_digit_groups": false,
+        "cer": 0.0
+      },
+      "legacy_joined_digits": "2300",
+      "status": "ok"
+    }
+  ],
+  "packages": {
+    "torch": "2.14.0",
+    "torchvision": "0.29.0",
+    "transformers": "5.17.0",
+    "ultralytics": "8.4.158",
+    "pillow": "12.3.0",
+    "pytesseract": "0.3.13"
+  },
+  "host": "Destopper",
+  "input_manifest_sha256": "dd50d7d87e08995f6bb82b25e447622d56c24945de9b668e5789dd3787542736",
+  "weights": {
+    "models/yolov8s.pt": "1f47a78bf100391c2a140b7ac73a1caae18c32779be7d310658112f7ac9aa78a",
+    "models/number632resol.pt": "ca0afd9a835cf664b61a368a8f6e40193bbc015df2cf6117cc4a1713cd22cba9"
+  },
+  "load_sec": 3.385054440004751,
+  "process_high_water_rss_kib": 1204872,
+  "target_visual_review": "Selected boxes inspected by assistant; intended central runner in all three photos. Human target-policy review still required."
+}

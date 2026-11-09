@@ -1,0 +1,4 @@
+# Linux x86_64, Python 3.12, NVIDIA L4 / compatible GPU and driver.
+--index-url https://download.pytorch.org/whl/cu126
+torch==2.10.0
+torchvision==0.25.0

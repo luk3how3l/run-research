@@ -1,0 +1,20 @@
+{
+  "system": "smolvlm",
+  "device": "cpu",
+  "records": [
+    {
+      "id": "dev-003",
+      "path": "media/quinton_bib_image.jpg",
+      "sha256": "97f3d0544a5846ef8ca6ff47d5a0819961de67fd9d9257cf75afdd88509a6009",
+      "bib": "2300",
+      "split": "development",
+      "review_status": "user_supplied",
+      "target_identity": "central foreground runner",
+      "target_bbox": null,
+      "provenance": "repository development photo"
+    }
+  ],
+  "output": "/home/lukea/run-research/results/verify-pc-20261104/smolvlm",
+  "model_dir": "/home/lukea/.cache/huggingface/hub/models--HuggingFaceTB--SmolVLM-500M-Instruct/snapshots/a7da5b986cb59b408707209984f360a5f4ad7e47",
+  "threads": 2
+}
