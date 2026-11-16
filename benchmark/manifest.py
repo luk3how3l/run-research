@@ -41,18 +41,27 @@ def _image_size(path):
         return im.size
 
 
-def validate(manifest, root, expected_count, accepted_review=("reviewed",), require_bbox=False):
+def validate(manifest, root, expected_count=None, accepted_review=("reviewed",), require_bbox=False):
     """Return (errors, warnings). Runnable only if errors is empty."""
     errors, warnings = [], []
     recs = manifest.get("records")
     if not isinstance(recs, list):
         return ["manifest has no 'records' list"], warnings
-    if len(recs) != expected_count:
+    if not recs:
+        errors.append("manifest records must not be empty")
+    if expected_count is not None and len(recs) != expected_count:
         errors.append(f"expected {expected_count} records, found {len(recs)}")
     root = os.path.realpath(root)
     paths, hashes, events = {}, {}, {}
+    ids = set()
     for i, r in enumerate(recs):
+        if not isinstance(r, dict):
+            errors.append(f"#{i}: record must be an object")
+            continue
         tag = r.get("id", f"#{i}")
+        if str(tag) in ids:
+            errors.append(f"{tag}: duplicate id")
+        ids.add(str(tag))
         if is_slot(r):
             errors.append(f"{tag}: unlabelled slot")
             continue
@@ -64,7 +73,7 @@ def validate(manifest, root, expected_count, accepted_review=("reviewed",), requ
                 errors.append(f"{tag}: missing or non-string '{k}'")
         if not r.get("provenance") and r.get("split") == "evaluation":
             errors.append(f"{tag}: evaluation record needs provenance/permission note")
-        if isinstance(r.get("bib"), str) and not re.fullmatch(r"\d+", r["bib"]):
+        if isinstance(r.get("bib"), str) and not re.fullmatch(r"[0-9]+", r["bib"]):
             errors.append(f"{tag}: bib must be a digit string")
         if r.get("split") not in SPLITS:
             errors.append(f"{tag}: split must be one of {sorted(SPLITS)}")
@@ -76,16 +85,16 @@ def validate(manifest, root, expected_count, accepted_review=("reviewed",), requ
             if os.path.isabs(p) or os.path.commonpath([root, full]) != root:
                 errors.append(f"{tag}: path escapes manifest root")
                 continue
-            if p in paths:
-                errors.append(f"{tag}: duplicate path (also {paths[p]})")
-            paths[p] = tag
+            if full in paths:
+                errors.append(f"{tag}: duplicate path (also {paths[full]})")
+            paths[full] = tag
             if not os.path.isfile(full):
                 errors.append(f"{tag}: file not found: {p}")
                 continue
             digest = sha256_file(full)
             if digest != r.get("sha256"):
                 errors.append(f"{tag}: sha256 mismatch")
-            if digest in hashes and hashes[digest] != tag:
+            if digest in hashes:
                 errors.append(f"{tag}: duplicate image content (same as {hashes[digest]})")
             hashes[digest] = tag
             bbox = r.get("target_bbox")
@@ -116,3 +125,15 @@ def validate(manifest, root, expected_count, accepted_review=("reviewed",), requ
             warnings.append(f"event {ev!r} spans splits {sorted(splits)}: review for leakage")
     warnings.append("near-duplicate / same-event leakage is not detected automatically; review by hand")
     return errors, warnings
+
+
+def validated_manifest(path, root, smoke=False):
+    """Preserve source ordering and annotation metadata; reject unresolved labels."""
+    manifest = load_manifest(path)
+    if not isinstance(manifest, dict):
+        raise ValueError('manifest must be an object')
+    errors, warnings = validate(manifest, root, accepted_review=
+                                ('reviewed', 'user_supplied') if smoke else ('reviewed',))
+    if errors:
+        raise ValueError('; '.join(errors))
+    return manifest, warnings

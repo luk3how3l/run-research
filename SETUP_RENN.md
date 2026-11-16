@@ -366,56 +366,186 @@ remain in the terminal and files.
 
 ### Result files
 
-Use the exact timestamped directory printed in the terminal:
+The runner now writes per-image `comparison.csv` and per-split `summary.csv`.
+The browser button still uses the three development photos by default; use the
+CLI below to select an annotated batch. Earlier experiment folders retain their
+original schemas and should not be overwritten.
 
-| File under `results/comparison-TIMESTAMP/` | Contents |
+## Running a multi-image three-model comparison
+
+Use the existing `.venv-renn-gpu` and local model directories. No dependency
+reinstallation is needed for this refactor. Confirm your **current** GPU allocation
+with the administrator/scheduler before running; idle readings do not authorize a
+device. Keep inherited `CUDA_VISIBLE_DEVICES`. The UUID below is the previously
+used device, and is valid only if it is still allocated to you.
+
+Inspect supported image counts recursively (the same extensions as annotation):
+
+```bash
+cd ~/run-research
+source .venv-renn-gpu/bin/activate
+python - <<'PYCOUNT'
+from pathlib import Path
+from collections import Counter
+extensions = {'.jpg', '.jpeg', '.png', '.webp'}
+counts = Counter(p.suffix.lower() for p in Path('media').rglob('*')
+                 if p.is_file() and p.suffix.lower() in extensions)
+print(dict(counts), 'total:', sum(counts.values()))
+PYCOUNT
+python - <<'PYSTATUS'
+import csv
+from collections import Counter
+with open('annotations/bibs.csv', newline='', encoding='utf-8') as f:
+    rows = list(csv.DictReader(f))
+print('Status:', dict(Counter(r['status'] for r in rows)))
+print('Split:', dict(Counter(r['split'] for r in rows)))
+print('Total:', len(rows))
+PYSTATUS
+```
+
+Review with `python -m tools.annotate --images media --csv annotations/bibs.csv`
+and the port 8765 SSH tunnel above. Preserve original photos as `development`;
+mark new held-out photos `evaluation`, with provenance/permission notes. Describe
+the single target runner. Bibs are digit strings, including leading zeros.
+
+Export the whole collection after every image is reviewed; replace `18` with the
+actual collection count:
+
+```bash
+python -m tools.annotate --images media --csv annotations/bibs.csv \
+  --export benchmark/manifests/renn-batch-01.json --expected-count 18
+```
+
+Pending, unreadable, ambiguous and skipped annotations block export and custom
+benchmark validation. Resolve them through human review; never invent a label or
+silently remove difficult images. The legacy smoke manifest alone retains its
+`user_supplied` review status exception. No batch is synthesized by the runner.
+
+Run the same frozen ordered records through all three systems:
+
+```bash
+python -m benchmark.runner \
+  --device cuda \
+  --gpu-uuid GPU-c17b88c2-24ec-4249-f527-ae8b09e8942a \
+  --manifest benchmark/manifests/renn-batch-01.json \
+  --systems cascade smolvlm pixtral \
+  --smolvlm-dir models/smolvlm-500m \
+  --pixtral-dir models/pixtral-12b \
+  --gpu-wait-seconds 30 \
+  --gpu-poll-seconds 5 \
+  --timeout 1200
+```
+
+`tools.verify_renn` and `tools.verify_pc` also accept `--manifest`. Explicit manifests
+use every validated record, regardless of `--all-images`. With no manifest, the
+runner retains the three-image smoke comparison, and direct verifiers retain their
+single-image default (`--all-images` selects all three). All paths in a manifest
+are relative to the repository root. Missing files, changed SHA256 hashes,
+duplicate paths/content/IDs, invalid labels or missing review data stop validation
+before models load. The runner freezes exact manifest bytes and digest in its new
+output folder, then workers recheck image hashes before each inference.
+
+Each comparison uses a new `results/comparison-<unique-run-id>/` directory:
+
+| Artifact | Contents |
 |---|---|
-| `comparison.csv` | One row per system: status, exact accuracy, mean/median image time, sequential images/sec, load time, input/output tokens, RAM, CPU seconds, and CUDA allocation peak |
-| `comparison.json` | The same summary rows in JSON |
-| `cascade/REPORT.md` | Cascade execution status and errors |
-| `smolvlm/REPORT.md` | SmolVLM execution status and errors |
-| `pixtral/REPORT.md` | Pixtral execution status and errors |
-| `SYSTEM/report.json` | Full verifier metadata and saved worker results; replace SYSTEM with the system name |
-| `SYSTEM/SYSTEM/result.json` | Per-image predictions, scores, timings, and available model metrics |
-| `SYSTEM/SYSTEM/worker.log` | Model loading, inference diagnostics, and errors |
+| `manifest.json` | Frozen source manifest with ordered records, targets, splits and provenance |
+| `comparison.csv` | One row per planned image per system; 18 images × 3 systems = 54 rows |
+| `summary.csv` | One row per system per dataset split |
+| `metadata.json` | Git SHA, manifest digest, timestamps, versions, GPU/runtime observations, model configurations and timing definitions |
+| `REPORT.md` | Status, errors and scientific limitations |
+| `gpu-preflight.json` | Every GPU screening attempt with timestamp, UUID/index, memory, utilization, mask, process observations and policy decision |
+| `SYSTEM/report.json` | Verifier report, dependencies, runtime identity and incremental results |
+| `SYSTEM/SYSTEM/result.json` | Worker predictions, scores, resolutions, timing and memory measurements |
+| `SYSTEM/SYSTEM/worker.log` | Offline load/inference logs |
 
-A CPU-blocked Pixtral has a summary row but no worker directory. Early preflight
-failures may also have no worker files. Failed or blocked comparisons return a
-nonzero exit status; inspect the per-system reports and logs. If a worker times
-out, inspect its saved trials directly: the current summary can undercount correct
-partial trials and omit the timeout explanation. `--check-only` performs no
-inference; its accuracy fields must not be interpreted as measured results.
+The nested worker directories preserve the existing verifier layout. Early failures
+may leave no worker directory. A blocked CPU Pixtral still has per-image rows.
 
-Token fields are not applicable to the cascade. Input tokens count processor IDs,
-not a separately verified visual-token count. RAM is Linux worker lifetime peak
-RSS. CPU seconds exclude Tesseract child-process work. CUDA peaks describe the
-recorded phase (cascade pipeline or VLM generation). These fields do not measure
-energy consumption, FLOPs, or live-video throughput. The README documents metric
-limits in [One-button comparison](README.md#one-button-comparison).
-
-### Annotated batches: current limitation
-
-The comparison currently uses only `benchmark/manifests/smoke3.json`, the three
-known development photos. It does **not** scan a test-media directory or consume
-an exported annotation batch. The final held-out evaluation is not wired up yet.
-
-You can prepare a separate batch now (replace `media/test` with your directory):
+Inspect CSVs with the standard library, preserving bib strings:
 
 ```bash
-python -m tools.annotate --images media/test --csv annotations/test-bibs.csv
+python - <<'PYCSV'
+import csv
+from pathlib import Path
+run = sorted(Path('results').glob('comparison-*'))[-1]  # or choose an exact run
+for name in ('comparison.csv', 'summary.csv'):
+    with (run / name).open(newline='', encoding='utf-8') as f:
+        rows = list(csv.DictReader(f))
+    print(run / name, 'rows:', len(rows))
+    for row in rows[:3]:
+        print(row)
+PYCSV
 ```
 
-Use the annotation tunnel on port 8765 described above. Select **reviewed** and
-**Save and next** to mark each photo done. For held-out data, select **evaluation**
-and enter a source/permission note. Once all 12 photos are reviewed, export:
+`comparison.csv` includes image identifiers/hash/split/target/ground truth, system
+and model identity, raw and extracted predictions, strict/normalized exact and CER,
+execution status/error, pipeline/generation seconds and CUDA allocated/reserved
+peaks. Failed and unattempted rows remain visible; absent numeric measurements are
+blank. Import bib columns as **text** in spreadsheet software, which may otherwise
+discard leading zeros. Cascade raw OCR is captured before its existing digit
+filter; scoring retains the legacy cascade output and established scoring rules.
+
+`summary.csv` counts planned, attempted, successful, failed and unattempted images;
+normalized accuracy divides correct predictions by **all planned images in that
+split**. Timing statistics use successful executions only; P95 uses nearest rank.
+Load time is system-wide and repeated across its split rows. Generation timing is
+VLM `model.generate` only; pipeline timing includes decode/preprocessing/inference/
+postprocessing and excludes model load. GPU peaks include resident weights and are
+measured during the recorded phase. No live-video throughput is inferred.
+Check-only rows are unattempted and do not establish measured accuracy.
+
+Scientific comparability: every system gets the same labeled records, but the
+unchanged cascade selects the largest person crossing the horizontal midpoint,
+otherwise the nearest horizontal person center. VLMs receive the unchanged central
+foreground runner prompt and full RGB image using their own local processors.
+Descriptions do not steer selection. Every cascade row is flagged for target review;
+VLM rows with differing descriptions are also flagged. Inspect selected bounding
+boxes/debug crops against human descriptions before interpreting accuracy as target
+recognition. Target agreement is **not automatically guaranteed**. Metadata records
+processor configuration/resolution differences, BF16/FP32 settings and Pixtral NF4.
+Pinned model revisions are recorded as expected revisions; offline structural checks
+cannot cryptographically authenticate arbitrary supplied local weights. Cascade
+weight hashes are in worker results. Preserve download provenance for local weights.
+
+For GPU-busy failures, inspect the actual attempt history and contemporaneous state:
 
 ```bash
-python -m tools.annotate --images media/test --csv annotations/test-bibs.csv \
-  --export annotations/test-batch.json --expected-count 12
+nvidia-smi --query-gpu=index,uuid,name,memory.total,memory.used,utilization.gpu --format=csv
+nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory --format=csv
+printf 'CUDA_VISIBLE_DEVICES=%s\n' "${CUDA_VISIBLE_DEVICES-<unset>}"
 ```
 
-Images stay in their original directory; the manifest records their paths, labels,
-and hashes. Unresolved labels block export. Keep the images and CSV together and
-retain the exported manifest. Running this batch still requires adding manifest
-selection to the comparison command and button; exporting alone does not change
-which images they evaluate.
+Use the exact run's `gpu-preflight.json`, `SYSTEM/report.json` and `probe.log`.
+The default waiting window is zero; `--gpu-wait-seconds 30 --gpu-poll-seconds 5`
+permits bounded retries without changing thresholds: utilization ≤10%, used memory
+≤1024 MiB, plus ≥18432 MiB free for Pixtral. Each retry revalidates identity and
+allocation. Unavailable measurements fail closed; `null` process information means
+unavailable, while `[]` means measured no compute processes. An empty process list
+alone never passes screening. Query durations add overhead to the polling window.
+No CPU fallback or alternate GPU is selected. An idle later reading cannot explain
+an earlier busy sample or prove a CUDA leak. Each worker exits and is reaped before
+the next starts; timeout cleanup kills only that worker's own process group.
+The parent never uses `torch.cuda.empty_cache()` to simulate resource release.
+
+Preserve original experimental folders and annotation backups. Use a new output
+path for every rerun (`--output` rejects existing directories); retain manifest,
+metadata, logs and CSVs together. Never commit OAuth tokens, model weights, private
+photos or annotation datasets. Review manifests for private paths/provenance before
+committing them.
+
+Optional cloud upload is a separate post-inference step. If you already configured
+an rclone remote named `gdrive`, choose the exact completed run directory:
+
+```bash
+rclone listremotes
+rclone copy results/comparison-YOUR-RUN-ID gdrive:RENN/comparison-YOUR-RUN-ID \
+  --include comparison.csv --include summary.csv --include metadata.json \
+  --include REPORT.md --include gpu-preflight.json --include manifest.json \
+  --dry-run
+# After inspecting the dry run, repeat without --dry-run to upload.
+```
+
+This copies artifacts without deleting earlier remote results. Upload neither
+private images nor rclone configuration/OAuth credentials. Inference performs no
+cloud upload and requires no Drive authorization.

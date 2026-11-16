@@ -94,11 +94,18 @@ class GPUUUID(unittest.TestCase):
 
 class ProcessAndTarget(unittest.TestCase):
     def test_timeout_is_recorded(self):
-        with tempfile.TemporaryDirectory() as d, patch.object(pc.subprocess, 'run',
-                side_effect=subprocess.TimeoutExpired('worker', 1)):
+        from unittest.mock import MagicMock
+        process = MagicMock()
+        process.pid = 12345
+        process.wait.side_effect = [subprocess.TimeoutExpired('worker', 1), -9]
+        with tempfile.TemporaryDirectory() as d, patch.object(pc.subprocess, 'Popen') as popen, \
+                patch.object(pc.os, 'killpg') as kill:
+            popen.return_value.__enter__.return_value = process
             status = pc.launch(['worker'], {}, Path(d) / 'log', 1)
         self.assertIsNone(status['returncode'])
         self.assertIn('Timed out', status['error'])
+        kill.assert_called_once_with(12345, pc.signal.SIGKILL)
+        self.assertEqual(process.wait.call_count, 2)
 
     def test_target_selection_has_no_label_input(self):
         left = dict(x1=0, y1=0, x2=15, y2=80)

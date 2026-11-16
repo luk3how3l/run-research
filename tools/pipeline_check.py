@@ -2,18 +2,20 @@
 import argparse
 import importlib.metadata
 import json
+import math
 import os
 import re
 from pathlib import Path
 import shutil
 import socket
+import signal
 import struct
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 
-from benchmark.manifest import load_manifest, sha256_file, validate
+from benchmark.manifest import load_manifest, sha256_file, validated_manifest
 from benchmark.scoring import PROMPT, score_response, summarize
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,6 +76,9 @@ def check_model(path, system):
             raise ValueError(f'Truncated/invalid safetensors payload: {shard}')
         total += shard.stat().st_size
     return {'path': str(path), 'shards': len(names), 'weight_file_bytes': total,
+            'config': config,
+            'processor_config': json.loads((path / 'preprocessor_config.json').read_text()),
+            'configuration_sha256': {p.name: sha256_file(p) for p in path.glob('*.json')},
             'integrity_check': 'header bounds and file sizes, not cryptographic verification'}
 
 
@@ -126,6 +131,53 @@ def gpu_facts():
         rows.append(dict(index=int(index), uuid=uuid, name=name, total_mib=int(total),
                          used_mib=int(used), utilization_pct=int(utilization)))
     return rows
+
+
+def compute_processes(selected):
+    try:
+        result = subprocess.run(['nvidia-smi', '--query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory',
+                                 '--format=csv,noheader,nounits'], capture_output=True, text=True,
+                                check=True, timeout=20)
+        return [line.strip() for line in result.stdout.splitlines() if line.split(',')[0].strip() == selected]
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def screen_gpu(selected, nf4, wait, poll, observations):
+    """Bounded read-only checks, with identity/allocation validation on every attempt."""
+    deadline = time.monotonic() + wait
+    initial_mask = os.environ.get('CUDA_VISIBLE_DEVICES')
+    while True:
+        observation = dict(timestamp=datetime.now(timezone.utc).isoformat(),
+                           inherited_cuda_visible_devices=os.environ.get('CUDA_VISIBLE_DEVICES'),
+                           uuid=selected, index=None, utilization_pct=None, used_mib=None,
+                           free_mib=None, passed=False, compute_processes=None)
+        observations.append(observation)
+        try:
+            if os.environ.get('CUDA_VISIBLE_DEVICES') != initial_mask:
+                raise ValueError('CUDA allocation mask changed during preflight')
+            gpus = gpu_facts()
+            identity = gpu_environment(initial_mask, selected, gpus)
+            selected = identity
+            gpu = next(g for g in gpus if g['uuid'] == identity)
+            observation.update(gpu)
+            if not (gpu['total_mib'] > 0 and 0 <= gpu['used_mib'] <= gpu['total_mib']
+                    and 0 <= gpu['utilization_pct'] <= 100):
+                raise ValueError('Invalid GPU memory/utilization measurements')
+            free = gpu['total_mib'] - gpu['used_mib']
+            observation.update(free_mib=free, compute_processes=compute_processes(identity))
+            passed = (gpu['utilization_pct'] <= 10 and gpu['used_mib'] <= 1024
+                      and (not nf4 or free >= 18 * 1024))
+            observation['passed'] = passed
+            if passed:
+                return gpu
+        except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as exc:
+            observation['error'] = str(exc)
+            raise ValueError(f'GPU measurements/identity unavailable: {exc}') from exc
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ValueError(f'GPU policy failed: {json.dumps(observation)}; limits: utilization <=10%, used <=1024 MiB; Pixtral free >=18432 MiB')
+        time.sleep(min(poll, remaining))
 
 
 def runtime_probe(device, nf4):
@@ -197,7 +249,9 @@ def run_worker(request):
         report['load_sec'] = time.perf_counter() - start
         write_json(output / 'result.json', report)
         for rec in request['records']:
-            trial = {'image': rec['path'], 'label': rec['bib'], 'sha256': rec['sha256']}
+            if sha256_file(ROOT / rec['path']) != rec['sha256']:
+                raise ValueError('Image changed after manifest freeze: ' + rec['path'])
+            trial = {'image_id': rec['id'], 'image': rec['path'], 'label': rec['bib'], 'sha256': rec['sha256']}
             print(f"{system}: {rec['path']}", flush=True)
             if device == 'cuda':
                 torch.cuda.reset_peak_memory_stats()
@@ -208,6 +262,7 @@ def run_worker(request):
                     frame = y.load_image(str(ROOT / rec['path']))
                     if frame is None:
                         raise ValueError('Image decode failed')
+                    trial['image_resolution'] = [frame.shape[1], frame.shape[0]]
                     people = y.detect_person(frame)
                     target = select_person(people, frame.shape[1])
                     trial['target_bbox'] = [target[k] for k in ['x1', 'y1', 'x2', 'y2']] if target else None
@@ -229,6 +284,9 @@ def run_worker(request):
                     # The legacy function swallows OCR exceptions; no captured output means execution failed.
                     if crop is not None and not raw:
                         raise RuntimeError('Legacy OCR failed before returning raw text; inspect worker.log')
+                    trial['raw_prediction'] = '\n'.join(raw)
+                    trial['scored_prediction'] = prediction
+                    trial['target_review_required'] = True
                     trial.update(raw_ocr=raw, outcome='no_person' if target is None else
                                  'no_bib' if crop is None else 'ocr_empty' if not prediction else 'prediction')
                     trial['score'] = score_response(prediction, rec['bib'])
@@ -238,6 +296,7 @@ def run_worker(request):
                 else:
                     with Image.open(ROOT / rec['path']) as im:
                         image = im.convert('RGB')
+                        trial['image_resolution'] = list(im.size)
                     metrics = vision_prompt(model, processor, image, query=PROMPT)
                     trial.update(metrics=metrics, score=score_response(metrics['raw_output'], rec['bib']))
                 sync()
@@ -266,12 +325,25 @@ def run_worker(request):
 
 
 def launch(command, env, log, timeout):
+    """Reap the worker and its own process group before returning, including on timeout."""
     with log.open('w', encoding='utf-8') as f:
-        try:
-            result = subprocess.run(command, env=env, cwd=ROOT, stdout=f, stderr=subprocess.STDOUT, timeout=timeout)
-            return {'returncode': result.returncode}
-        except subprocess.TimeoutExpired:
-            return {'returncode': None, 'error': f'Timed out after {timeout} seconds'}
+        with subprocess.Popen(command, env=env, cwd=ROOT, stdout=f, stderr=subprocess.STDOUT,
+                              start_new_session=True) as process:
+            try:
+                returncode = process.wait(timeout=timeout)
+                return {'returncode': returncode}
+            except subprocess.TimeoutExpired:
+                return {'returncode': None, 'error': f'Timed out after {timeout} seconds'}
+            finally:
+                # Group contains only descendants of this worker, never other GPU users.
+                try:
+                    if os.name == 'posix':
+                        os.killpg(process.pid, signal.SIGKILL)
+                    elif process.poll() is None:
+                        process.kill()
+                except ProcessLookupError:
+                    pass
+                process.wait()
 
 
 def main(profile):
@@ -281,6 +353,10 @@ def main(profile):
     parser.add_argument('--smolvlm-dir', help='Local checkpoint; default: models/smolvlm-500m or pinned Hub cache')
     if profile == 'renn':
         parser.add_argument('--pixtral-dir', help='Local checkpoint; default: models/pixtral-12b or pinned Hub cache')
+    parser.add_argument('--manifest', type=Path, help='Reviewed annotation export; uses every ordered record')
+    parser.add_argument('--legacy-smoke', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--gpu-wait-seconds', type=float, default=0)
+    parser.add_argument('--gpu-poll-seconds', type=float, default=5)
     parser.add_argument('--all-images', action='store_true', help='Use all three known photos; default: Quinton only')
     parser.add_argument('--check-only', action='store_true', help='Files/dependencies/tiny runtime probe only; no model loading')
     parser.add_argument('--output', type=Path, help='New directory; default: timestamped results/verify-*')
@@ -289,6 +365,8 @@ def main(profile):
     if profile == 'renn':
         parser.add_argument('--gpu-uuid', help='Allocated GPU UUID; must respect inherited CUDA_VISIBLE_DEVICES')
     args = parser.parse_args()
+    if args.gpu_wait_seconds < 0 or args.gpu_poll_seconds <= 0 or not all(math.isfinite(x) for x in (args.gpu_wait_seconds, args.gpu_poll_seconds)):
+        parser.error('GPU wait must be finite and nonnegative; poll must be finite and positive')
     if args.timeout < 1 or args.threads < 1:
         parser.error('timeout and threads must be positive')
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
@@ -308,12 +386,19 @@ def main(profile):
     env = dict(os.environ, HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1', HF_HUB_DISABLE_TELEMETRY='1',
                PYTHONPATH=str(ROOT), YOLO_OFFLINE='true')
     try:
-        manifest = load_manifest(ROOT / 'benchmark/manifests/smoke3.json')
-        errors, _ = validate(manifest, ROOT, 3, accepted_review=('reviewed', 'user_supplied'))
-        if errors:
-            raise ValueError('; '.join(errors))
-        records = manifest['records'] if args.all_images else [manifest['records'][2]]
+        manifest_path = args.manifest or ROOT / 'benchmark/manifests/smoke3.json'
+        legacy_smoke = args.manifest is None
+        if args.legacy_smoke:
+            if load_manifest(manifest_path) != load_manifest(ROOT / 'benchmark/manifests/smoke3.json'):
+                raise ValueError('Legacy smoke snapshot differs from repository smoke manifest')
+            legacy_smoke = True
+        manifest, warnings = validated_manifest(manifest_path, ROOT, smoke=legacy_smoke)
+        records = manifest['records'] if args.manifest or args.all_images else [manifest['records'][2]]
+        report['warnings'] = warnings
         report['records'] = records
+        write_json(output / 'manifest.json', dict(manifest, records=records))
+        report['manifest_sha256'] = sha256_file(output / 'manifest.json')
+        report['gpu_preflight'] = []
         needed = ['torch', 'torchvision', 'Pillow', 'numpy', 'requests']
         if any(s != 'cascade' for s in systems):
             needed += ['transformers', 'accelerate', 'safetensors']
@@ -340,9 +425,9 @@ def main(profile):
         if profile == 'pc':
             env['CUDA_VISIBLE_DEVICES'] = ''
         else:
-            gpus = gpu_facts()
-            selected = gpu_environment(os.environ.get('CUDA_VISIBLE_DEVICES'), args.gpu_uuid, gpus)
-            gpu = next(g for g in gpus if g['uuid'] == selected)
+            gpu = screen_gpu(args.gpu_uuid, 'pixtral' in systems, args.gpu_wait_seconds,
+                             args.gpu_poll_seconds, report['gpu_preflight'])
+            selected = gpu['uuid']
             report['selected_gpu'] = gpu
             inherited_mask = os.environ.get('CUDA_VISIBLE_DEVICES')
             numeric_mask = inherited_mask is not None and any(t.strip().isdigit() for t in inherited_mask.split(','))
@@ -350,11 +435,6 @@ def main(profile):
                 raise ValueError('Multiple numeric allocation indices cannot safely be remapped to UUIDs; request a single-GPU allocation or UUID-based mask')
             # Never reinterpret a scheduler numeric index through a different CUDA ordering.
             env['CUDA_VISIBLE_DEVICES'] = inherited_mask if numeric_mask else selected
-            # Read-only screening: never launch models onto an already busy device.
-            if gpu['utilization_pct'] > 10 or gpu['used_mib'] > 1024:
-                report['errors'].append('Selected GPU is busy (>10% utilization or >1 GiB used); wait for allocation')
-            if 'pixtral' in systems and gpu['total_mib'] - gpu['used_mib'] < 18 * 1024:
-                report['errors'].append('Pixtral policy requires at least 18 GiB free VRAM; not a fit guarantee')
         if report['errors']:
             raise ValueError('Preflight failed; see errors below')
         probe_path = output / 'probe.json'
@@ -379,6 +459,9 @@ def main(profile):
             report['status'] = 'preflight_passed'
         else:
             for system in systems:
+                if profile == 'renn':
+                    screen_gpu(selected, system == 'pixtral', args.gpu_wait_seconds,
+                               args.gpu_poll_seconds, report['gpu_preflight'])
                 work = output / system
                 work.mkdir()
                 request = dict(system=system, device=device, records=records, output=str(work),
@@ -396,9 +479,11 @@ def main(profile):
                 write_json(output / 'report.json', report)
             report['pipeline_verified'] = all(s['passed'] for s in report['systems'].values())
             report['status'] = 'passed' if report['pipeline_verified'] else 'failed'
-    except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as exc:
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError, subprocess.SubprocessError) as exc:
         report['status'] = 'failed'
         report['errors'].append(str(exc))
+    report['ended_utc'] = datetime.now(timezone.utc).isoformat()
+    write_json(output / 'gpu-preflight.json', report.get('gpu_preflight', []))
     write_json(output / 'report.json', report)
     lines = [f"# {profile.upper()} pipeline verification", '', f"Status: {report['status']}",
              f"Mode: {report['mode']}", f"Host: {report['host']}", '',
