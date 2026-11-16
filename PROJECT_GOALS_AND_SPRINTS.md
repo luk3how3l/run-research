@@ -189,3 +189,23 @@ Dataset annotation and collection proceed throughout the early sprints. Hybrid d
 
 - [README](README.md): overview and historical pilot result; implementation status needs updating.
 - [Detailed coding handoff](coding_agent_10_19.md): protocol, model revisions, legacy settings, resource constraints, and acceptance requirements.
+
+## Sprint increment — 16 November 2026
+
+Implemented a single comparison command (`python -m benchmark.runner`) and local browser
+Run comparison button (`python -m tools.compare_button`). They reuse preflight-checked,
+isolated sequential workers and export a terminal table, summary CSV/JSON, and per-system
+raw reports. Measured fields cover accuracy, pipeline/load timing, input/output token IDs,
+process CPU seconds, lifetime peak RSS, and CUDA phase peak allocations when available.
+
+Actual CPU run: `results/sprint-comparison-20261116/comparison.csv`. Cascade and SmolVLM
+each matched 3/3 development labels, with mean pipeline times 0.95 and 27.41 seconds.
+Pixtral was blocked on CPU; no GPU result is claimed. Fifty-three focused tests pass,
+and localhost page/status/invalid-request checks pass. These observations do not establish
+held-out accuracy. The browser's rendered appearance has not been manually reviewed.
+
+This increment provides the requested three-system launch/report workflow, but does not
+complete every earlier research-framework requirement: arbitrary reviewed manifests,
+repeated timing/warmup protocols, phase RSS sampling, independent adapter contracts,
+removal of legacy import-time loading, and frozen-protocol cross-run reporting remain.
+GPU inference and reviewed dataset preparation remain external experiment gates.

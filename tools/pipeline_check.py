@@ -162,6 +162,8 @@ def select_person(people, width):
 
 def run_worker(request):
     """A process per system: no overlapping model memory or benchmark execution."""
+    import resource
+    cpu_started = time.process_time()
     import torch
     torch.set_num_threads(request['threads'])
     device = request['device']
@@ -257,6 +259,8 @@ def run_worker(request):
         print(repr(exc), flush=True)
         return 1
     finally:
+        report['process_peak_rss_mib'] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+        report['process_cpu_sec'] = time.process_time() - cpu_started
         report['summary'] = summarize(report['trials'], report['planned'])
         write_json(output / 'result.json', report)
 

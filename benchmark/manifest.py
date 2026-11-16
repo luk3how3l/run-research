@@ -93,14 +93,19 @@ def validate(manifest, root, expected_count, accepted_review=("reviewed",), requ
                 if require_bbox:
                     errors.append(f"{tag}: target_bbox required")
             else:
-                size = _image_size(full)
                 ok = (isinstance(bbox, list) and len(bbox) == 4
                       and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in bbox))
                 if not ok:
                     errors.append(f"{tag}: target_bbox must be [x1,y1,x2,y2] numbers")
-                elif size is None:
-                    errors.append(f"{tag}: cannot validate target_bbox bounds (Pillow missing)")
                 else:
+                    try:
+                        size = _image_size(full)
+                    except (OSError, ValueError) as exc:
+                        errors.append(f"{tag}: unreadable target_bbox image: {exc}")
+                        continue
+                    if size is None:
+                        errors.append(f"{tag}: cannot validate target_bbox bounds (Pillow missing)")
+                        continue
                     x1, y1, x2, y2 = bbox
                     if not (0 <= x1 < x2 <= size[0] and 0 <= y1 < y2 <= size[1]):
                         errors.append(f"{tag}: target_bbox outside {size[0]}x{size[1]} image")

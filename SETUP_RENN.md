@@ -98,7 +98,7 @@ nvidia-smi --query-gpu=index,uuid,name,memory.total,memory.used,utilization.gpu,
 Select your allocated UUID, not an arbitrary idle GPU. For example, replace the placeholder below with the **actual UUID printed above**:
 
 ```bash
-export CUDA_VISIBLE_DEVICES=GPU-YOUR-ACTUAL-ALLOCATED-UUID
+export CUDA_VISIBLE_DEVICES=GPU-c17b88c2-24ec-4249-f527-ae8b09e8942a
 ```
 
 An empty value hides all GPUs. A literal placeholder such as `GPU-REPLACE-WITH-YOUR-ALLOCATED-UUID` also prevents selection. If you previously copied a placeholder and this is your dedicated VM, replace it with the real UUID. Do not clear a scheduler's mask to expose other GPUs.
@@ -249,7 +249,7 @@ nvidia-smi --query-gpu=index,uuid,name,memory.total,memory.used,utilization.gpu 
 printf 'CUDA_VISIBLE_DEVICES=%s\n' "${CUDA_VISIBLE_DEVICES-<unset>}"
 
 python -m tools.verify_renn \
-  --gpu-uuid GPU-YOUR-AUTHORIZED-UUID \
+  --gpu-uuid GPU-c17b88c2-24ec-4249-f527-ae8b09e8942a \
   --check-only
 ```
 
@@ -321,3 +321,101 @@ nvidia-smi > results/renn-nvidia-smi.txt
 ```
 
 Keep model files and personal photos outside commits. Remaining project work is listed in [the sprint plan](PROJECT_GOALS_AND_SPRINTS.md).
+
+## 12. Run the comparison and find results
+
+After the setup and smoke checks above, run from the repository root on your
+allocated GPU machine:
+
+```bash
+cd ~/run-research
+source .venv-renn-gpu/bin/activate
+python -m benchmark.runner --device cuda \
+  --gpu-uuid GPU-YOUR-ACTUAL-ALLOCATED-UUID \
+  --smolvlm-dir models/smolvlm-500m \
+  --pixtral-dir models/pixtral-12b
+```
+
+Replace the GPU placeholder with your allocated UUID, respecting the scheduler's
+existing mask. This runs the legacy cascade, SmolVLM, and Pixtral NF4 sequentially,
+prints a comparison table, and saves a new `results/comparison-TIMESTAMP/` folder.
+It does not download weights. Use `--timeout 1800` to set the per-worker timeout
+(default 1800 seconds), or `--systems cascade smolvlm` to select fewer systems.
+
+For a browser **Run comparison** button, start this on RENN instead:
+
+```bash
+cd ~/run-research
+source .venv-renn-gpu/bin/activate
+python -m tools.compare_button
+```
+
+Leave that terminal open. In a second terminal on the laptop, forward the button's
+port using the same SSH host you use for RENN:
+
+```bash
+ssh -N -L 8766:127.0.0.1:8766 luke@student-luke
+```
+
+Open http://127.0.0.1:8766 on the laptop. Select **cuda**, enter your allocated GPU
+UUID, enter the model directories above, and click **Run comparison**. Relative
+model paths are relative to the repository on RENN. Progress and the final table
+appear in the RENN terminal that launched the button. CPU is the initial selection;
+CPU runs mark Pixtral blocked. The page reports completion, while detailed results
+remain in the terminal and files.
+
+### Result files
+
+Use the exact timestamped directory printed in the terminal:
+
+| File under `results/comparison-TIMESTAMP/` | Contents |
+|---|---|
+| `comparison.csv` | One row per system: status, exact accuracy, mean/median image time, sequential images/sec, load time, input/output tokens, RAM, CPU seconds, and CUDA allocation peak |
+| `comparison.json` | The same summary rows in JSON |
+| `cascade/REPORT.md` | Cascade execution status and errors |
+| `smolvlm/REPORT.md` | SmolVLM execution status and errors |
+| `pixtral/REPORT.md` | Pixtral execution status and errors |
+| `SYSTEM/report.json` | Full verifier metadata and saved worker results; replace SYSTEM with the system name |
+| `SYSTEM/SYSTEM/result.json` | Per-image predictions, scores, timings, and available model metrics |
+| `SYSTEM/SYSTEM/worker.log` | Model loading, inference diagnostics, and errors |
+
+A CPU-blocked Pixtral has a summary row but no worker directory. Early preflight
+failures may also have no worker files. Failed or blocked comparisons return a
+nonzero exit status; inspect the per-system reports and logs. If a worker times
+out, inspect its saved trials directly: the current summary can undercount correct
+partial trials and omit the timeout explanation. `--check-only` performs no
+inference; its accuracy fields must not be interpreted as measured results.
+
+Token fields are not applicable to the cascade. Input tokens count processor IDs,
+not a separately verified visual-token count. RAM is Linux worker lifetime peak
+RSS. CPU seconds exclude Tesseract child-process work. CUDA peaks describe the
+recorded phase (cascade pipeline or VLM generation). These fields do not measure
+energy consumption, FLOPs, or live-video throughput. The README documents metric
+limits in [One-button comparison](README.md#one-button-comparison).
+
+### Annotated batches: current limitation
+
+The comparison currently uses only `benchmark/manifests/smoke3.json`, the three
+known development photos. It does **not** scan a test-media directory or consume
+an exported annotation batch. The final held-out evaluation is not wired up yet.
+
+You can prepare a separate batch now (replace `media/test` with your directory):
+
+```bash
+python -m tools.annotate --images media/test --csv annotations/test-bibs.csv
+```
+
+Use the annotation tunnel on port 8765 described above. Select **reviewed** and
+**Save and next** to mark each photo done. For held-out data, select **evaluation**
+and enter a source/permission note. Once all 12 photos are reviewed, export:
+
+```bash
+python -m tools.annotate --images media/test --csv annotations/test-bibs.csv \
+  --export annotations/test-batch.json --expected-count 12
+```
+
+Images stay in their original directory; the manifest records their paths, labels,
+and hashes. Unresolved labels block export. Keep the images and CSV together and
+retain the exported manifest. Running this batch still requires adding manifest
+selection to the comparison command and button; exporting alone does not change
+which images they evaluate.

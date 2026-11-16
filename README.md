@@ -187,3 +187,87 @@ python -m unittest discover -s tests -p 'test_*.py'
 Resource recommendations are preliminary. Cache completeness is unknown without a pinned file inventory. `--probe` opts into importing ML packages and tiny operations; avoid its UUID override when an inherited allocation mask must be preserved. Never use broad root test discovery with `test_qwen.py` present.
 
 Final paper evaluation still needs a reviewed dataset, frozen target policy, shared multi-image runner, phase memory measurement, controlled repeated timing, and hybrid adapters. Use the [sprint plan](PROJECT_GOALS_AND_SPRINTS.md) as the current plan; the [October handoff](coding_agent_10_19.md) retains historical details and protocol requirements.
+
+## One-button comparison
+
+From an activated environment, launch the local browser button:
+
+```bash
+python -m tools.compare_button
+```
+
+Open http://127.0.0.1:8766 and click **Run comparison**. Progress and the comparison table print in the launching terminal;
+`results/comparison-*/comparison.csv` contains summary metrics, and `comparison.json`
+and per-system reports retain raw outputs and per-image measurements. No downloads occur.
+
+The equivalent terminal command is:
+
+```bash
+python -m benchmark.runner
+```
+
+CPU runs compare cascade and SmolVLM and explicitly mark Pixtral blocked. For all three,
+run on the allocated RENN GPU after installing dependencies and local weights:
+
+```bash
+python -m benchmark.runner --device cuda --gpu-uuid GPU-YOUR-ACTUAL-ALLOCATED-UUID \
+  --smolvlm-dir models/smolvlm-500m --pixtral-dir models/pixtral-12b
+```
+
+All systems run sequentially on the same three development photos. `--check-only`
+checks readiness without inference; `--timeout` bounds each worker. Output directories
+must be new. Failed or blocked comparisons exit nonzero and retain their reports.
+
+CSV metrics include exact accuracy, mean/median pipeline time, sequential images/sec,
+load time, processor input and generated output token counts, worker lifetime peak RSS,
+process CPU seconds, and CUDA phase peak allocated memory. Cascade token counts are
+blank (not applicable). Input token IDs can contain image placeholders; the older
+`visual_tokens` patch estimate is deliberately excluded. CPU time excludes child-process
+Tesseract work; memory is not phase-isolated. These are resource measurements, not
+FLOPs, energy, hardware utilization percentages, or live-video throughput. Repeated timing,
+reviewed held-out data, and full configurable dataset evaluation remain future work.
+
+### Where to open the results
+
+The terminal prints the exact `results/comparison-TIMESTAMP/comparison.csv` path.
+Open that CSV in a spreadsheet application for one summary row per system;
+`comparison.json` contains the same rows. To inspect individual predictions or
+failures, open `SYSTEM/REPORT.md`, `SYSTEM/report.json`, and
+`SYSTEM/SYSTEM/result.json` / `worker.log` under that comparison directory, replacing
+SYSTEM with `cascade`, `smolvlm`, or `pixtral`. Blocked systems and early preflight
+failures may have no worker directory. Keep these files with the summary CSV.
+
+For RENN commands, browser-button SSH forwarding, and a result-file reference, see
+[Run the comparison and find results](SETUP_RENN.md#12-run-the-comparison-and-find-results).
+The browser shows running/finished status; the terminal and files contain results.
+
+### Preparing your separate test batch
+
+Annotation already supports marking each photo done: choose **reviewed**, enter
+the bib digits, and click **Save and next**. For held-out images choose
+**evaluation** and record a source/permission note. Use a separate CSV for a
+separate collection; replace `media/test` below with your test-media directory:
+
+```bash
+python -m tools.annotate --images media/test --csv annotations/test-bibs.csv
+```
+
+After all 12 images are reviewed, export their validated batch manifest:
+
+```bash
+python -m tools.annotate --images media/test --csv annotations/test-bibs.csv \
+  --export annotations/test-batch.json --expected-count 12
+```
+
+Use the actual image count if different. No image movement is needed: the manifest
+records existing image paths, labels, and hashes. Unresolved images block export.
+
+**The comparison button and command currently evaluate only the original three
+photos. They cannot yet select this exported batch.** This launch workflow is a
+development comparison; wiring in reviewed batches remains necessary for the
+final project evaluation. Do not replace the smoke manifest to bypass that gap.
+
+Known reporting limits: `--check-only` runs no inference, so its accuracy fields
+are not measured accuracy. After a worker timeout, inspect saved per-image trials
+and logs; the current summary can undercount correct partial trials and omit the
+timeout explanation.
