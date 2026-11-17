@@ -134,22 +134,34 @@ Pixtral uses approximately 25.4 GB of original downloaded weights. NF4 reduces r
 
 ## Label photos
 
-```bash
-python -m tools.annotate --images media --csv annotations/bibs.csv
-```
+Follow [Annotate photos and prepare a benchmark batch](ANNOTATION_WORKFLOW.md) for the complete step-by-step procedure, including SSH forwarding, imported-photo selection, resuming, recovery, and transferring a local collection to RENN.
 
-Open http://127.0.0.1:8765. Enter the designated runner's bib digits; keep leading zeros. Set the target description and split, and add a source/permission note for evaluation photos. Save and next persists a record. Previous lets you edit; navigation without saving discards edits. Restart with the same arguments to resume. The CSV is written atomically with a unique backup of the preceding version at each save.
+1. From the repository root, prepare the directories:
 
-Supported files: JPEG, PNG, WebP, including subdirectories. Skip/unreadable/ambiguous statuses must have blank bibs. Model predictions are not shown during labeling. Multiple-person photos need a reviewed target description; box drawing is not implemented. Images and CSV must stay paired; missing/changed images or duplicate content are refused.
+   ```bash
+   mkdir -p media/unannotated media/annotated media/needs_review annotations benchmark/manifests
+   ```
 
-Export after all scanned photos have reviewed digit labels:
+2. Copy selected new photos into `media/unannotated/`, leaving imported originals in `media/drive-test-trainbib/`. Supported formats are JPG, JPEG, PNG, and WebP, including uppercase extensions. Add each photo once; keep the original three smoke photos in place.
+3. Start the local annotation page:
 
-```bash
-python -m tools.annotate --images media --csv annotations/bibs.csv \
-  --export annotations/reviewed100.json --expected-count 100
-```
+   ```bash
+   python3 -m tools.annotate --csv annotations/bibs.csv
+   ```
 
-Use the actual scanned count for smaller collections. `media/` may now contain more than the original three photos, so a three-record export only works with a three-photo image directory. Unresolved photos block export rather than silently disappearing. CSV columns are `image_path,bib,sha256,status,target_identity,split,provenance`; import bibs as text in spreadsheet software. Unreadable-example scoring must be agreed before final evaluation. SSH tunneling is covered in the RENN guide.
+4. Open http://127.0.0.1:8765. Enter the designated runner's bib digits (including leading zeros), target description, split, and provenance. For RENN, use [the SSH tunnel instructions](SETUP_RENN.md#11-annotation-and-lightweight-verification).
+5. Click **Save and next**. Reviewed images move to `media/annotated/`; skipped, unreadable, and ambiguous images require blank bibs and move to `media/needs_review/`. The CSV path and metadata are persisted and progress updates. Errors do not advance the page.
+6. Restart with the same command to resume. Use **All images / edit labels** to revisit saved records. An empty queue displays **All available images have been annotated.**
+7. Stop the server, count reviewed rows using [the guide](ANNOTATION_WORKFLOW.md#7-count-reviewed-images-before-exporting), and export. For **18 reviewed** photos:
+
+   ```bash
+   python3 -m tools.annotate --csv annotations/bibs.csv \
+     --export benchmark/manifests/renn-batch-01.json --expected-count 18
+   ```
+
+Use your actual reviewed count. The export includes all reviewed rows across both splits, excluding pending and needs-review rows while preserving them in the CSV. Document exclusion rules before evaluation. Run the resulting manifest with the command [below](#preparing-your-test-batch).
+
+The CSV remains authoritative: `image_path,bib,sha256,status,target_identity,split,provenance`. SHA-256 reconnects records across moves; changed images, duplicate content, missing records, filename collisions, and escaping paths are refused. Saves use atomic CSV replacement, backups, and a recovery journal. Keep managed directories on one filesystem and retain image backups. See [error recovery](ANNOTATION_WORKFLOW.md#6-resume-correct-labels-or-recover-from-an-error). The default queue leaves imported directories untouched; avoid a recursive `--images media` scan.
 
 ## Reproduce the bounded CPU comparison
 
@@ -186,7 +198,7 @@ python -m unittest discover -s tests -p 'test_*.py'
 
 Resource recommendations are preliminary. Cache completeness is unknown without a pinned file inventory. `--probe` opts into importing ML packages and tiny operations; avoid its UUID override when an inherited allocation mask must be preserved. Never use broad root test discovery with `test_qwen.py` present.
 
-Final paper evaluation still needs a reviewed dataset, frozen target policy, shared multi-image runner, phase memory measurement, controlled repeated timing, and hybrid adapters. Use the [sprint plan](PROJECT_GOALS_AND_SPRINTS.md) as the current plan; the [October handoff](coding_agent_10_19.md) retains historical details and protocol requirements.
+The shared runner accepts reviewed multi-image manifests. Final paper evaluation still needs the reviewed dataset, frozen target policy, controlled repeated timing, further phase memory measurement, and hybrid adapters. Use the [sprint plan](PROJECT_GOALS_AND_SPRINTS.md) as the current plan; the [October handoff](coding_agent_10_19.md) retains historical details and protocol requirements.
 
 ## One-button comparison
 
@@ -197,8 +209,7 @@ python -m tools.compare_button
 ```
 
 Open http://127.0.0.1:8766 and click **Run comparison**. Progress and the comparison table print in the launching terminal;
-`results/comparison-*/comparison.csv` contains summary metrics, and `comparison.json`
-and per-system reports retain raw outputs and per-image measurements. No downloads occur.
+`results/comparison-*/comparison.csv` contains per-image rows and `summary.csv` contains metrics per system and split. `comparison.json` and per-system reports retain execution details and raw measurements. No downloads occur.
 
 The equivalent terminal command is:
 
@@ -214,24 +225,21 @@ python -m benchmark.runner --device cuda --gpu-uuid GPU-YOUR-ACTUAL-ALLOCATED-UU
   --smolvlm-dir models/smolvlm-500m --pixtral-dir models/pixtral-12b
 ```
 
-All systems run sequentially on the same three development photos. `--check-only`
+By default, all systems run sequentially on the same three development photos. Pass `--manifest` to run a reviewed batch (see below). `--check-only`
 checks readiness without inference; `--timeout` bounds each worker. Output directories
 must be new. Failed or blocked comparisons exit nonzero and retain their reports.
 
-CSV metrics include exact accuracy, mean/median pipeline time, sequential images/sec,
-load time, processor input and generated output token counts, worker lifetime peak RSS,
-process CPU seconds, and CUDA phase peak allocated memory. Cascade token counts are
+The per-image CSV includes predictions, exact/CER scores, failures, pipeline/generation timings, and CUDA allocated/reserved peaks. The summary CSV reports accuracy counts and timing statistics by system and split. Per-system worker results additionally retain token counts, lifetime peak RSS, and process CPU seconds where measured. Cascade token counts are
 blank (not applicable). Input token IDs can contain image placeholders; the older
 `visual_tokens` patch estimate is deliberately excluded. CPU time excludes child-process
 Tesseract work; memory is not phase-isolated. These are resource measurements, not
 FLOPs, energy, hardware utilization percentages, or live-video throughput. Repeated timing,
-reviewed held-out data, and full configurable dataset evaluation remain future work.
+reviewed held-out data, and the remaining frozen evaluation protocol remain future work.
 
 ### Where to open the results
 
 The terminal prints the exact `results/comparison-TIMESTAMP/comparison.csv` path.
-Open that CSV in a spreadsheet application for one summary row per system;
-`comparison.json` contains the same rows. To inspect individual predictions or
+Open `comparison.csv` for one row per planned image/system, or `summary.csv` for one row per system and split. `comparison.json` retains per-system reports. To inspect individual predictions or
 failures, open `SYSTEM/REPORT.md`, `SYSTEM/report.json`, and
 `SYSTEM/SYSTEM/result.json` / `worker.log` under that comparison directory, replacing
 SYSTEM with `cascade`, `smolvlm`, or `pixtral`. Blocked systems and early preflight
@@ -241,33 +249,18 @@ For RENN commands, browser-button SSH forwarding, and a result-file reference, s
 [Run the comparison and find results](SETUP_RENN.md#12-run-the-comparison-and-find-results).
 The browser shows running/finished status; the terminal and files contain results.
 
-### Preparing your separate test batch
+### Preparing your test batch
 
-Annotation already supports marking each photo done: choose **reviewed**, enter
-the bib digits, and click **Save and next**. For held-out images choose
-**evaluation** and record a source/permission note. Use a separate CSV for a
-separate collection; replace `media/test` below with your test-media directory:
+Use the single authoritative `annotations/bibs.csv` and the managed directories above. The collection always scans the managed directories, so a different CSV is not an isolation mechanism for a separate batch. Export includes every reviewed row from the selected CSV. For a genuinely separate collection, use a separate repository copy with its own media and CSV.
 
-```bash
-python -m tools.annotate --images media/test --csv annotations/test-bibs.csv
-```
-
-After all 12 images are reviewed, export their validated batch manifest:
+After exporting `benchmark/manifests/renn-batch-01.json`, check readiness on RENN:
 
 ```bash
-python -m tools.annotate --images media/test --csv annotations/test-bibs.csv \
-  --export annotations/test-batch.json --expected-count 12
+python -m benchmark.runner --device cuda --gpu-uuid GPU-YOUR-ACTUAL-ALLOCATED-UUID \
+  --manifest benchmark/manifests/renn-batch-01.json \
+  --systems cascade smolvlm pixtral \
+  --smolvlm-dir models/smolvlm-500m --pixtral-dir models/pixtral-12b \
+  --check-only
 ```
 
-Use the actual image count if different. No image movement is needed: the manifest
-records existing image paths, labels, and hashes. Unresolved images block export.
-
-**The comparison button and command currently evaluate only the original three
-photos. They cannot yet select this exported batch.** This launch workflow is a
-development comparison; wiring in reviewed batches remains necessary for the
-final project evaluation. Do not replace the smoke manifest to bypass that gap.
-
-Known reporting limits: `--check-only` runs no inference, so its accuracy fields
-are not measured accuracy. After a worker timeout, inspect saved per-image trials
-and logs; the current summary can undercount correct partial trials and omit the
-timeout explanation.
+Use your allocated UUID, retain its mask, and repeat without `--check-only` for inference. Check-only success does not establish accuracy. The browser comparison button still uses the original three development photos; use the CLI for an exported batch. See [the RENN multi-image instructions](SETUP_RENN.md#running-a-multi-image-three-model-comparison) for result files, GPU retries, and measurement limits. Keep the exported manifest, its images, and the printed results directory together for reproducibility.

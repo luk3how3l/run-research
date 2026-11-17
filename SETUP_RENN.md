@@ -2,7 +2,9 @@
 
 This guide assumes Ubuntu/Debian Linux, Python 3.12, and an assigned NVIDIA GPU VM or compute node. You already have SSH access. Every command below runs **on RENN**, except the explicitly marked file-transfer commands. Run sections in order. No scheduler is assumed.
 
-**Local validation:** 35 focused tests pass, the updated loader imports with Transformers 5.17.0, and the pinned cached SmolVLM loads offline on CPU. This new dependency profile and Pixtral CUDA/NF4 have not been exercised on RENN.
+**Local validation:** 77 repository tests pass in the local project virtual environment, including 16 annotation tests and transaction recovery checks. Browser-script save/error/empty-queue smoke checks pass. Earlier loader validation showed that the updated loader imports with Transformers 5.17.0 and the pinned cached SmolVLM loads offline on CPU. This new dependency profile and Pixtral CUDA/NF4 have not been exercised on RENN.
+
+**Already have RENN set up?** Keep your existing working environment. For the new photo workflow, go to [section 11](#11-annotation-and-lightweight-verification), then [the multi-image comparison](#running-a-multi-image-three-model-comparison). For a complete copy/paste walkthrough, use [Annotate photos and prepare a benchmark batch](ANNOTATION_WORKFLOW.md). Annotation can be completed before the GPU setup; no GPU or model downloads are needed to label photos.
 
 The previous `AutoModelForVision2Seq` error is fixed in the updated source by using explicit model classes. The separate `torch.cuda.is_available() == False` error needs the hardware checks below; installing Python packages alone cannot attach a GPU to a VM.
 
@@ -23,10 +25,18 @@ df -h .
 Get the updated repository through your normal Git workflow. Changes made on the laptop must be committed/pushed before `git pull` can retrieve them. Alternatively, from the **laptop's repository directory**, copy the working source without replacing the VM environment:
 
 ```bash
-rsync -av --exclude=.git --exclude='.venv*' --exclude=__pycache__ --exclude=models --exclude=annotations --exclude=results ./ luke@student-luke:~/run-research/
+rsync -av --exclude=.git --exclude='.venv*' --exclude=__pycache__ --exclude=models --exclude=media --exclude=annotations --exclude=results ./ luke@student-luke:~/run-research/
 ```
 
-Replace `luke@student-luke` with your SSH destination if different. This command has no deletion option. If rsync is unavailable, use SCP or your normal file-transfer application. Then return to the RENN terminal.
+Replace `luke@student-luke` with your SSH destination if different. This source-only command excludes media, annotations, models, and results so it does not replace an existing dataset. Transfer selected new photos separately using [the annotation guide](ANNOTATION_WORKFLOW.md#3-add-a-small-batch-of-new-images). This command has no deletion option. If rsync is unavailable, use SCP or your normal file-transfer application. Then return to the RENN terminal.
+
+For a fresh source-only rsync installation, also copy the three original smoke-test photos separately from the **laptop repository**, if they are still present at their original paths:
+
+```bash
+rsync -av --ignore-existing media/quinton_bib_image.jpg media/hannah_bib_test.jpg media/ryan_rockie_bib.jpg luke@student-luke:~/run-research/media/
+```
+
+Create `~/run-research/media/` on RENN first if needed (`ssh luke@student-luke 'mkdir -p ~/run-research/media'`). The smoke-test commands below use these original paths. A custom reviewed batch uses its exported manifest instead.
 
 ## 2. Install operating-system prerequisites
 
@@ -83,7 +93,7 @@ Choose only the files you need:
 
 The 12.6 profile is a concrete installation candidate for the earlier L4/driver snapshot, not proof of this VM's current compatibility. If the current GPU or driver differs, use the administrator-supported matching Torch/torchvision pair from the official page and record the change. Do not reinstall the reported 13.2 build blindly. These pinned requirements are not a fully resolved cross-platform lockfile and have not been installed/tested on RENN by this assistant.
 
-Annotation and the standard-library tests need none of these pip packages. The root `requirements.txt` now includes only `common.txt`; unrelated historical app packages have been removed.
+Annotation and its focused tests need none of these pip packages. The full suite includes image validation tests that need Pillow (installed by `common.txt`). The root `requirements.txt` now includes only `common.txt`; unrelated historical app packages have been removed.
 
 ## 5. Make the assigned GPU visible and verify CUDA
 
@@ -298,21 +308,52 @@ Run the corresponding laptop test with `python -m tools.verify_pc`; it forces CP
 
 ## 11. Annotation and lightweight verification
 
+Use [the full step-by-step annotation guide](ANNOTATION_WORKFLOW.md) for photo selection, copying from the imported dataset, label corrections, recovery, export, and laptop-to-RENN transfer. For annotation directly on RENN:
+
+1. Prepare the queue from the repository root:
+
+   ```bash
+   cd ~/run-research
+   mkdir -p media/unannotated media/annotated media/needs_review annotations benchmark/manifests
+   ```
+
+2. Copy selected new photos into `media/unannotated/`, keeping imported originals in `media/drive-test-trainbib/`. Use real filenames and start with a small batch. Do not queue an image again if it is already in the CSV. Leave the three original smoke-test photos at their existing paths.
+
+3. Start the server and leave this RENN terminal running:
+
+   ```bash
+   python3 -m tools.annotate --csv annotations/bibs.csv
+   ```
+
+4. In a second terminal on the **laptop**, open the tunnel (substitute your SSH destination):
+
+   ```bash
+   ssh -N -L 8765:127.0.0.1:8765 luke@student-luke
+   ```
+
+5. Open **http://127.0.0.1:8765** on the laptop. Enter bib digits, target runner, development/evaluation split, and provenance. Keep leading zeros. Choose **reviewed** only for a confident reading; for **skipped**, **unreadable**, or **ambiguous**, clear the bib. Evaluation records require a source/permission note.
+
+6. Click **Save and next**. Reviewed photos move to `media/annotated/`; the other three saved statuses move to `media/needs_review/`. The authoritative `annotations/bibs.csv` records the new path and metadata. Counts update and the next pending photo appears. A failed save shows an error and does not advance. Pending images stay in the queue.
+
+7. Restart with the same command to resume. Select **All images / edit labels** to correct saved records or revisit needs-review images. The empty-queue message means no pending rows remain, not that all photos were reviewed. Stop with Ctrl+C before exporting a frozen batch, then continue below.
+
+The default scan does not ingest the entire imported dataset. Older CSV rows remain available even if their paths are outside the managed directories. Avoid `--images media`: it would recursively scan imported originals and may introduce duplicates or unintended pending records. Keep the CSV, its backups, images, and any `.transaction` journal together. Interrupted moves recover on restart; see [recovery instructions](ANNOTATION_WORKFLOW.md#6-resume-correct-labels-or-recover-from-an-error).
+
+For focused annotation verification without extra packages:
+
 ```bash
+python3 -m unittest discover -s tests -p 'test_annotation.py'
+```
+
+For the full suite, use the installed research environment (Pillow is needed by some image validation tests):
+
+```bash
+source .venv-renn-gpu/bin/activate
 python -m unittest discover -s tests -p 'test_*.py'
 python -m start --help
-python -m tools.annotate --images media --csv annotations/bibs.csv
 ```
 
-For the last command, leave the RENN terminal running. From a second terminal on the **laptop**:
-
-```bash
-ssh -N -L 8765:127.0.0.1:8765 luke@student-luke
-```
-
-Open http://127.0.0.1:8765 in the laptop browser. No GUI or GPU is needed for annotation. CSV labels are saved on RENN. The [README](README.md) explains labeling and export. Avoid root-level broad test discovery: `test_qwen.py` is a legacy inference script that loads a model on import.
-
-After installation and successful smoke tests, record your environment:
+Avoid root-level broad test discovery: `test_qwen.py` is a legacy inference script that loads a model on import. After successful installation and smoke checks, record the environment:
 
 ```bash
 mkdir -p results
@@ -338,7 +379,7 @@ python -m benchmark.runner --device cuda \
 
 Replace the GPU placeholder with your allocated UUID, respecting the scheduler's
 existing mask. This runs the legacy cascade, SmolVLM, and Pixtral NF4 sequentially,
-prints a comparison table, and saves a new `results/comparison-TIMESTAMP/` folder.
+prints progress, and saves a new `results/comparison-TIMESTAMP/` folder.
 It does not download weights. Use `--timeout 1800` to set the per-worker timeout
 (default 1800 seconds), or `--systems cascade smolvlm` to select fewer systems.
 
@@ -376,65 +417,66 @@ original schemas and should not be overwritten.
 Use the existing `.venv-renn-gpu` and local model directories. No dependency
 reinstallation is needed for this refactor. Confirm your **current** GPU allocation
 with the administrator/scheduler before running; idle readings do not authorize a
-device. Keep inherited `CUDA_VISIBLE_DEVICES`. The UUID below is the previously
-used device, and is valid only if it is still allocated to you.
+device. Keep inherited `CUDA_VISIBLE_DEVICES`. Replace the UUID placeholder below
+with the complete UUID of your currently allocated device.
 
-Inspect supported image counts recursively (the same extensions as annotation):
+### A. Confirm annotation status
+
+Complete [section 11](#11-annotation-and-lightweight-verification) or the [annotation walkthrough](ANNOTATION_WORKFLOW.md) first. On RENN, inspect the authoritative CSV rather than counting imported source files:
 
 ```bash
 cd ~/run-research
 source .venv-renn-gpu/bin/activate
-python - <<'PYCOUNT'
-from pathlib import Path
-from collections import Counter
-extensions = {'.jpg', '.jpeg', '.png', '.webp'}
-counts = Counter(p.suffix.lower() for p in Path('media').rglob('*')
-                 if p.is_file() and p.suffix.lower() in extensions)
-print(dict(counts), 'total:', sum(counts.values()))
-PYCOUNT
 python - <<'PYSTATUS'
 import csv
 from collections import Counter
-with open('annotations/bibs.csv', newline='', encoding='utf-8') as f:
+from pathlib import Path
+path = Path('annotations/bibs.csv')
+if not path.exists():
+    raise SystemExit('Save annotations in the browser first; no CSV exists yet.')
+with path.open(newline='', encoding='utf-8') as f:
     rows = list(csv.DictReader(f))
+reviewed = [r for r in rows if r['status'] == 'reviewed']
 print('Status:', dict(Counter(r['status'] for r in rows)))
-print('Split:', dict(Counter(r['split'] for r in rows)))
-print('Total:', len(rows))
+print('Reviewed splits:', dict(Counter(r['split'] for r in reviewed)))
+print('Reviewed export count:', len(reviewed))
 PYSTATUS
 ```
 
-Review with `python -m tools.annotate --images media --csv annotations/bibs.csv`
-and the port 8765 SSH tunnel above. Preserve original photos as `development`;
-mark new held-out photos `evaluation`, with provenance/permission notes. Describe
-the single target runner. Bibs are digit strings, including leading zeros.
+Preserve development status for photos used in tuning. Mark genuinely held-out photos evaluation, with provenance/permission notes. Resolve label uncertainty through human review. Keep exclusions visible and document them before evaluating predictions.
 
-Export the whole collection after every image is reviewed; replace `18` with the
-actual collection count:
+### B. Export the reviewed batch
+
+If the command above reports **18 reviewed** photos, export as follows; otherwise replace `18` with the actual reviewed count:
 
 ```bash
-python -m tools.annotate --images media --csv annotations/bibs.csv \
+python -m tools.annotate --csv annotations/bibs.csv \
   --export benchmark/manifests/renn-batch-01.json --expected-count 18
 ```
 
-Pending, unreadable, ambiguous and skipped annotations block export and custom
-benchmark validation. Resolve them through human review; never invent a label or
-silently remove difficult images. The legacy smoke manifest alone retains its
-`user_supplied` review status exception. No batch is synthesized by the runner.
+Export includes all reviewed rows from this CSV, with both splits and their current paths. Pending, unreadable, ambiguous, and skipped records remain in the CSV and are excluded from the export. No reviewed records or a wrong expected count causes failure. Custom benchmark manifests still require every included record to be reviewed and valid. The legacy smoke manifest alone retains its `user_supplied` exception.
+
+Use a new filename for each frozen batch. Finish corrections and image moves before exporting; later CSV edits do not change existing manifest snapshots. If annotations were created on your laptop, [transfer the CSV, manifest, and referenced images](ANNOTATION_WORKFLOW.md#9-if-annotated-locally-transfer-the-dataset-to-renn) before running on RENN. The manifest alone does not contain the image data.
+
+### C. Check readiness, then perform inference
 
 Run the same frozen ordered records through all three systems:
 
 ```bash
 python -m benchmark.runner \
   --device cuda \
-  --gpu-uuid GPU-c17b88c2-24ec-4249-f527-ae8b09e8942a \
+  --gpu-uuid GPU-YOUR-ACTUAL-ALLOCATED-UUID \
   --manifest benchmark/manifests/renn-batch-01.json \
   --systems cascade smolvlm pixtral \
   --smolvlm-dir models/smolvlm-500m \
   --pixtral-dir models/pixtral-12b \
   --gpu-wait-seconds 30 \
   --gpu-poll-seconds 5 \
-  --timeout 1200
+  --timeout 1200 \
+  --check-only
 ```
+
+After `preflight_passed`, repeat the command without `--check-only` for inference. Keep your actual allocated UUID and inherited mask. Each invocation writes a new results directory. The runner without `--manifest` and the browser comparison button use the original three photos, not your annotation queue.
 
 `tools.verify_renn` and `tools.verify_pc` also accept `--manifest`. Explicit manifests
 use every validated record, regardless of `--all-images`. With no manifest, the
@@ -445,7 +487,9 @@ duplicate paths/content/IDs, invalid labels or missing review data stop validati
 before models load. The runner freezes exact manifest bytes and digest in its new
 output folder, then workers recheck image hashes before each inference.
 
-Each comparison uses a new `results/comparison-<unique-run-id>/` directory:
+### D. Inspect the completed run
+
+Use the exact directory printed by the runner. Each comparison uses a new `results/comparison-<unique-run-id>/` directory:
 
 | Artifact | Contents |
 |---|---|

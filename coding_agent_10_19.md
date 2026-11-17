@@ -1,5 +1,8 @@
 # Coding-agent handoff: reproducible bib-number comparison
 
+> Historical handoff: retain the dated protocol and results below as context. For current commands and status-based media management, follow [the annotation walkthrough](ANNOTATION_WORKFLOW.md), [RENN setup](SETUP_RENN.md), and [the current sprint plan](PROJECT_GOALS_AND_SPRINTS.md). Reviewed exports and custom `--manifest` batches are implemented; older implementation-status statements below describe the historical snapshot.
+
+
 Date: 19 October 2026
 
 ## 1. Task and current boundary

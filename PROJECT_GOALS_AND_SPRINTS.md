@@ -53,6 +53,8 @@ Recent local changes already make database/cache imports optional and point the 
 
 ## Sprint 0 — Photo annotation tool and dataset preparation
 
+**Current workflow (16 November 2026):** follow [the step-by-step annotation guide](ANNOTATION_WORKFLOW.md), then [RENN multi-image comparison](SETUP_RENN.md#running-a-multi-image-three-model-comparison). The annotation refactor uses SHA-256 identity, status-based moves into `media/annotated/` or `media/needs_review/`, an authoritative CSV with atomic saves/backups, and transaction recovery. New photos start in `media/unannotated/`; imported originals stay in place. Export includes reviewed rows only and retains unresolved records in the CSV. The runner accepts the resulting `--manifest`. The local project environment passes 77 tests, including 16 annotation tests; human labeling and real RENN execution remain separate tasks.
+
 **Implementation status (2 November):** `python3 -m tools.annotate` now provides browser annotation, atomic CSV saves with backups, resume/edit, and strict reviewed-manifest export. Six annotation tests and the existing 23 tests pass; a localhost HTTP smoke test verified page/image/rows/save endpoints. Browser visual review, human annotation, and RENN execution remain pending. See [setup instructions](SETUP_LAPTOP_AND_RENN.md).
 
 **Outcome:** a separate laptop program displays one image at a time and lets the researcher enter and review its bib number.
@@ -205,7 +207,7 @@ and localhost page/status/invalid-request checks pass. These observations do not
 held-out accuracy. The browser's rendered appearance has not been manually reviewed.
 
 This increment provides the requested three-system launch/report workflow, but does not
-complete every earlier research-framework requirement: arbitrary reviewed manifests,
+complete every earlier research-framework requirement. Arbitrary reviewed manifests are now supported;
 repeated timing/warmup protocols, phase RSS sampling, independent adapter contracts,
 removal of legacy import-time loading, and frozen-protocol cross-run reporting remain.
 GPU inference and reviewed dataset preparation remain external experiment gates.
